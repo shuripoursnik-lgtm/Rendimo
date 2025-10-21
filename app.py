@@ -99,9 +99,9 @@ def main():
         
         st.divider()
         
-        # Chat interface
-        st.header("💬 Assistant IA")
-        chat_interface()
+    # Chat interface
+    st.header("💬 Assistant IA")
+    chat_interface()
     
     with col2:
         # Section Résultats avec estimation intégrée
@@ -208,24 +208,57 @@ console.log('Pièces:', rooms);
 📖 **Guide complet :** `GUIDE_INSPECTEUR.md`""")
 
 def chat_interface():
-    """Interface de chat simplifiée"""
-    
-    # Affichage des messages
-    for message in st.session_state.chat_history:
-        if message['role'] == 'user':
-            st.markdown(f'<div class="chat-message user-message"><strong>Vous:</strong> {message["content"]}</div>', 
-                       unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="chat-message assistant-message"><strong>Assistant:</strong> {message["content"]}</div>', 
-                       unsafe_allow_html=True)
-    
-    # Saisie de message
-    user_input = st.text_input("Posez votre question :", 
-                              placeholder="Ex: Qu'est-ce que la rentabilité locative ?")
-    
-    if st.button("Envoyer"):
-        if user_input.strip():
-            handle_chat_message(user_input.strip())
+    """Interface de chat classique orientée immobilier (Streamlit chat)."""
+
+    # Initialiser/afficher l'état de la connexion IA
+    if 'assistant' not in st.session_state:
+        st.session_state.assistant = AIAssistant()
+    assistant: AIAssistant = st.session_state.assistant
+
+    # Bandeau d'état du backend IA
+    backend = ""
+    if getattr(assistant, 'groq_client', None):
+        backend = f"Groq · Modèle: {getattr(assistant, 'groq_model', 'n/a')} · Température: {getattr(assistant, 'generation_temperature', 'n/a')}"
+        st.caption(f"Connexion IA: {backend}")
+    elif getattr(assistant, 'openai_client', None):
+        backend = f"OpenAI · Modèle: {getattr(assistant, 'openai_model', 'n/a')} · Température: {getattr(assistant, 'generation_temperature', 'n/a')}"
+        st.caption(f"Connexion IA: {backend}")
+    else:
+        st.caption("Connexion IA: mode local (fallback)")
+
+    # Replay de l'historique en bulles de chat
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg['role']):
+            st.markdown(msg['content'])
+
+    # Entrée utilisateur en bas, style chat
+    prompt = st.chat_input("Posez votre question (ex: Qu'est-ce qu'une SCI ? Différence LMNP vs LMP ?)" )
+    if prompt:
+        # Afficher et stocker la requête utilisateur
+        st.session_state.chat_history.append({
+            'role': 'user',
+            'content': prompt,
+            'timestamp': datetime.now().isoformat()
+        })
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Obtenir la réponse de l'assistant avec contexte du bien
+        with st.chat_message("assistant"):
+            with st.spinner("Rédaction de la réponse…"):
+                reply = assistant.get_response(
+                    prompt,
+                    st.session_state.chat_history,
+                    st.session_state.property_data
+                )
+                st.markdown(reply)
+        # Stocker la réponse
+        st.session_state.chat_history.append({
+            'role': 'assistant',
+            'content': reply,
+            'timestamp': datetime.now().isoformat()
+        })
+        # Pas de st.rerun ici, l'UI de chat gère le flux
 
 def results_interface():
     """Interface des résultats avec estimation intégrée"""

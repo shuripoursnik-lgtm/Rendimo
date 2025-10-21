@@ -8,6 +8,7 @@ Date: Octobre 2024
 
 import logging
 import os
+import re
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import json
@@ -17,6 +18,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Imports conditionnels des APIs
+try:
+    # Chargement optionnel des variables d'environnement depuis .env
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    # Pas bloquant si python-dotenv n'est pas installé
+    pass
 try:
     import groq
     GROQ_AVAILABLE = True
@@ -46,6 +54,10 @@ class AIAssistant:
         """Initialise l'assistant IA avec les clés API disponibles"""
         self.groq_client = None
         self.openai_client = None
+        self.groq_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        self.openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        # Température plus basse pour des réponses plus précises et cohérentes
+        self.generation_temperature = float(os.getenv("AI_TEMPERATURE", "0.2"))
         
         # Configuration Groq
         groq_api_key = os.getenv('GROQ_API_KEY')
@@ -134,8 +146,44 @@ Utilise des émojis pour rendre tes réponses plus claires :
 🎯 pour les objectifs
 📞 pour les contacts professionnels
 
-Réponds toujours en français et adapte ton niveau selon le niveau de connaissance apparent de l'utilisateur. 
-Si on te pose une question qui n'est pas liée à l'immobilier, oriente poliment la conversation vers ton domaine d'expertise."""
+Réponds toujours en français et adapte ton niveau selon le niveau de connaissance apparent de l'utilisateur.
+Si on te pose une question qui n'est pas liée à l'immobilier, oriente poliment la conversation vers ton domaine d'expertise.
+
+Directives spécifiques SCI / LMNP / LMP (mise à jour 2025) :
+- Si la question contient des termes comme "sci", "lmnp", "lmp", "meublé", "statut", "fiscalité", réponds de façon structurée :
+    1) Définition et objectif
+    2) Conditions d'éligibilité / seuils (ex: LMP si recettes > 23 000€ ET > autres revenus professionnels du foyer)
+    3) Régime fiscal (micro-BIC vs réel, amortissements, déficits)
+    4) Cotisations sociales (prélèvements sociaux LMNP vs cotisations SSI pour LMP)
+    5) Plus-values à la revente (privées LMNP vs professionnelles LMP, exemptions possibles)
+    6) Avantages / limites et quand choisir
+    7) Exemple chiffré simple (si pertinent)
+- Corrige gentiment les fautes usuelles (ex: "LMNA" → "LMNP") et clarifie les acronymes dès la première mention.
+- Pour la SCI :
+    • Par défaut, la SCI est à l'IR et convient surtout au nu; le meublé régulier rend l'activité commerciale → risque d'IS (ou opter pour l'IS).
+    • Expose clairement les impacts d'une SCI à l'IS (amortissements, fiscalité des dividendes, plus-values professionnelles) vs IR.
+    • Mentionne les alternatives (SARL de famille) pour de la location meublée si pertinent.
+
+Toujours proposer une courte mise en garde : la fiscalité évolue et un avis d'expert-comptable est recommandé pour arbitrer.
+"""
+
+    def _normalize_user_message(self, text: str) -> str:
+        """Normalise certaines abréviations/fautes fréquentes pour aider l'IA.
+
+        Exemples: LMNA -> LMNP, lmna -> LMNP, lmnp/lmp en majuscules.
+        """
+        try:
+            normalized = text
+            # Corriger LMNA (faute fréquente) vers LMNP
+            normalized = re.sub(r"\bLMNA\b", "LMNP", normalized, flags=re.IGNORECASE)
+            # Uniformiser LMNP/LMP en majuscules
+            normalized = re.sub(r"\blmnp\b", "LMNP", normalized, flags=re.IGNORECASE)
+            normalized = re.sub(r"\blmp\b", "LMP", normalized, flags=re.IGNORECASE)
+            # Uniformiser SCI en majuscules
+            normalized = re.sub(r"\bsci\b", "SCI", normalized, flags=re.IGNORECASE)
+            return normalized
+        except Exception:
+            return text
     
     def get_response(self, 
                     user_message: str,
@@ -157,6 +205,16 @@ Si on te pose une question qui n'est pas liée à l'immobilier, oriente poliment
         try:
             # Construction du contexte
             context = self._build_context(chat_history, property_data)
+
+            # Normalisation de la question (fautes usuelles)
+            user_message = self._normalize_user_message(user_message)
+
+            # Réponses déterministes pour thèmes sensibles (plus précises)
+            lower_q = user_message.lower()
+            if "sci" in lower_q:
+                return self._get_sci_info()
+            if any(k in lower_q for k in ["lmnp", "lmp", "meubl"]):
+                return self._get_lmnp_vs_lmp_info()
             
             # Tentative avec Groq en priorité
             if self.groq_client:
@@ -232,9 +290,9 @@ Si on te pose une question qui n'est pas liée à l'immobilier, oriente poliment
             ]
             
             response = self.groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",  # Modèle Groq mis à jour
+                model=self.groq_model,  # Modèle Groq configurable (par défaut 70B)
                 messages=messages,
-                temperature=0.7,
+                temperature=self.generation_temperature,
                 max_tokens=1000,
                 top_p=1,
                 stream=False
@@ -265,9 +323,9 @@ Si on te pose une question qui n'est pas liée à l'immobilier, oriente poliment
             ]
             
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",  # Modèle économique d'OpenAI
+                model=self.openai_model,  # Modèle OpenAI configurable
                 messages=messages,
-                temperature=0.7,
+                temperature=self.generation_temperature,
                 max_tokens=1000
             )
             
@@ -292,6 +350,14 @@ Si on te pose une question qui n'est pas liée à l'immobilier, oriente poliment
         """
         message_lower = user_message.lower()
         
+        # Questions spécifiques SCI
+        if "sci" in message_lower:
+            return self._get_sci_info()
+
+        # Questions LMNP / LMP / meublé
+        if any(k in message_lower for k in ["lmnp", "lmp", "meubl"]):
+            return self._get_lmnp_vs_lmp_info()
+
         # Questions sur les frais de notaire
         if any(word in message_lower for word in ['frais de notaire', 'notaire', 'frais d\'acquisition', 'frais achat']):
             return self._get_notary_fees_info()
@@ -342,6 +408,62 @@ Si on te pose une question qui n'est pas liée à l'immobilier, oriente poliment
         
         else:
             return self._get_general_response()
+
+    def _get_sci_info(self) -> str:
+        """Explication structurée de la SCI (IR/IS, usages, limites)."""
+        return (
+            "🏛️ Qu'est-ce qu'une SCI (Société Civile Immobilière) ?\n\n"
+            "Définition: Structure juridique pour détenir et gérer un patrimoine immobilier à plusieurs (ou seul).\n\n"
+            "🎯 Objectifs courants:\n"
+            "• Gestion familiale d'un bien\n"
+            "• Transmission (donations, démembrement) facilitée\n"
+            "• Mutualiser l'investissement entre associés\n\n"
+            "📚 Régimes fiscaux:\n"
+            "• Par défaut: SCI à l'IR (impôt sur le revenu) → adaptée à la location nue (revenus fonciers).\n"
+            "• À l'IS (option ou bascule si activité commerciale): adaptée si amortissements recherchés, mais\n"
+            "  fiscalité différente à la revente (plus-values professionnelles) et double niveau d'imposition (IS + dividendes).\n\n"
+            "🛋️ Location meublée et SCI:\n"
+            "• Une SCI à l'IR n'est pas faite pour du meublé régulier (activité commerciale).\n"
+            "• Si meublé récurrent: risque d'assujettissement à l'IS. Alternatives: SARL de famille au réel, LMNP/LMP en nom propre.\n\n"
+            "✅ Avantages:\n"
+            "• Souplesse statutaire (pactes entre associés)\n"
+            "• Transmission progressive (donations de parts)\n"
+            "• Séparation patrimoine perso / immobilier\n\n"
+            "⚠️ Limites:\n"
+            "• Frais (création, comptabilité, assemblées)\n"
+            "• Moins adaptée au meublé régulier (risque IS)\n"
+            "• À l'IS: impôt sur la société + taxation des dividendes, plus-values moins favorables\n\n"
+            "💡 En pratique: privilégier SCI-IR pour du nu patrimonial. Pour du meublé récurrent, envisager LMNP/LMP en nom propre ou SARL de famille.\n"
+            "Consultez un expert pour arbitrer IR vs IS selon vos objectifs et horizon de détention."
+        )
+
+    def _get_lmnp_vs_lmp_info(self) -> str:
+        """Différences clés entre LMNP et LMP avec structure claire."""
+        return (
+            "🛋️ Location meublée: LMNP vs LMP\n\n"
+            "1) Définitions:\n"
+            "• LMNP (Loueur en Meublé Non Professionnel): activité meublée à titre non pro.\n"
+            "• LMP (Loueur en Meublé Professionnel): statut pro selon critères.\n\n"
+            "2) Conditions du LMP (cumulatives):\n"
+            "• Recettes annuelles meublées > 23 000 €\n"
+            "• ET supérieures aux autres revenus professionnels du foyer fiscal\n\n"
+            "3) Régime fiscal (BIC):\n"
+            "• Micro-BIC: abattement forfaitaire (seuil révisé périodiquement, ex ~77 700 €; à vérifier chaque année).\n"
+            "• Réel: charges réelles + amortissements (hors terrain), souvent plus avantageux en meublé.\n\n"
+            "4) Cotisations sociales:\n"
+            "• LMNP: en général, prélèvements sociaux (17,2%) sur le résultat (si imposable).\n"
+            "• LMP: cotisations sociales (SSI) sur le bénéfice, taux globaux significatifs (à estimer avec un expert).\n\n"
+            "5) Plus-values à la revente:\n"
+            "• LMNP: régime des plus-values des particuliers (abattements dans le temps).\n"
+            "• LMP: plus-values professionnelles (possibles exonérations sous conditions: durée d'activité, CA, etc.).\n\n"
+            "6) Avantages / limites:\n"
+            "• LMNP: simplicité, amortissements au réel, souvent optimisant l'impôt. Limite: statut non pro.\n"
+            "• LMP: reconnaissance professionnelle et exonérations possibles, mais charges sociales et complexité accrues.\n\n"
+            "7) Quand choisir ?\n"
+            "• Visez LMNP réel si vous débutez/optimisez l'impôt.\n"
+            "• LMP possible si recettes importantes et stratégie long terme; à valider selon vos revenus pro.\n\n"
+            "💡 Conseils: simulez MICRO vs RÉEL (amortissements) et anticipez cotisations/plus-values. Un expert-comptable est vivement recommandé."
+        )
     
     def _get_notary_fees_info(self) -> str:
         """Informations sur les frais de notaire"""
