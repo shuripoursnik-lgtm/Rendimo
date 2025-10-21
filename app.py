@@ -15,6 +15,7 @@ from datetime import datetime
 from utils.scraper import LeBonCoinScraper
 from utils.calculator import RentabilityCalculator
 from api.ai_assistant import AIAssistant
+from api.price_api import PriceAPI
 
 # Configuration de la page
 st.set_page_config(
@@ -287,56 +288,81 @@ def results_interface():
         """)
 
 def estimate_with_api(property_data):
-    """Estime un bien avec calcul local simple"""
+    """Estime un bien via PriceAPI (DVF si dispo, sinon estimation), et affiche les métriques."""
     try:
         with st.spinner("🔍 Estimation en cours..."):
-            # Estimation simple basée sur des moyennes de marché
+            # Pré-requis
             surface = property_data.get('surface', 0)
-            city = property_data.get('city', '').lower()
-            property_type = property_data.get('property_type', '').lower()
-            
+            price = property_data.get('price', 0)
             if surface <= 0:
                 st.warning("⚠️ Surface requise pour l'estimation")
                 return
-            
-            # Prix moyens au m² par type de ville (estimation approximative)
-            if any(ville in city for ville in ['paris', 'neuilly', 'boulogne']):
-                base_price_m2 = 8000  # Paris et proche banlieue
-            elif any(ville in city for ville in ['lyon', 'marseille', 'nice', 'cannes']):
-                base_price_m2 = 4000  # Grandes villes
-            elif any(ville in city for ville in ['nantes', 'bordeaux', 'lille', 'toulouse']):
-                base_price_m2 = 3000  # Métropoles
+
+            city = property_data.get('city', '') or ''
+            postal_code = property_data.get('postal_code', None)
+            raw_type = (property_data.get('property_type') or '').lower()
+
+            # Mapping type vers PriceAPI (apartment|house)
+            if 'maison' in raw_type:
+                api_type = 'house'
             else:
-                base_price_m2 = 2000  # Autres villes
-            
-            # Ajustement par type de bien
-            if 'maison' in property_type:
-                multiplier = 0.9  # Maisons souvent moins chères au m²
-            elif 'studio' in property_type:
-                multiplier = 1.2  # Studios plus chers au m²
-            else:
-                multiplier = 1.0  # Appartement
-            
-            estimated_value = int(surface * base_price_m2 * multiplier)
-            
-            st.info(f"💰 **Estimation locale :** {estimated_value:,}€")
-            st.caption(f"Basé sur {base_price_m2 * multiplier:,.0f}€/m² pour {city}")
-            
-            # Comparaison avec le prix annoncé
-            asking_price = property_data.get('price', 0)
-            if asking_price > 0:
-                difference = asking_price - estimated_value
-                percentage = (difference / estimated_value) * 100
-                
-                if percentage > 15:
-                    st.warning(f"⚠️ Prix supérieur de {percentage:.0f}% à l'estimation locale")
-                elif percentage < -15:
-                    st.success(f"✅ Bon prix ! {abs(percentage):.0f}% en dessous de l'estimation")
+                api_type = 'apartment'
+
+            api = PriceAPI()
+            market = api.get_local_prices(city=city, postal_code=postal_code, property_type=api_type)
+
+            # Sauvegarde en session pour chatbot/usage ultérieur
+            st.session_state['market_data'] = market
+
+            # Affichage des métriques marché
+            st.markdown("### 📈 Marché local")
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                st.metric("Médiane €/m²", f"{market.get('price_per_sqm', 0):,}€")
+            with m2:
+                min_p = market.get('min_price')
+                max_p = market.get('max_price')
+                if min_p and max_p:
+                    st.metric("Intervalle P10–P90", f"{min_p:,}€ – {max_p:,}€")
                 else:
-                    st.info(f"ℹ️ Prix proche de l'estimation locale ({percentage:+.0f}%)")
-                    
-            add_chat_message("assistant", f"📊 **Estimation locale réalisée :** {estimated_value:,}€ pour ce bien à {city}")
-            
+                    st.metric("Intervalle P10–P90", "N/A")
+            with m3:
+                st.metric("Transactions", f"{market.get('transaction_count', 'N/A')}")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.caption(f"Période: {market.get('data_period', 'N/A')}")
+            with c2:
+                conf = market.get('confidence')
+                if isinstance(conf, (int, float)):
+                    st.caption(f"Confiance: {int(conf*100)}% · Source: {market.get('source', 'N/A')}")
+                else:
+                    st.caption(f"Source: {market.get('source', 'N/A')}")
+
+            # Comparaison du bien vs marché
+            st.markdown("### 🧮 Comparaison du bien")
+            cmp_res = api.compare_property_price(property_price=price, property_surface=surface, market_data=market)
+            if 'error' in cmp_res:
+                st.warning(f"⚠️ {cmp_res['error']}")
+            else:
+                k1, k2, k3 = st.columns(3)
+                with k1:
+                    st.metric("Prix du bien €/m²", f"{cmp_res['property_price_per_sqm']:.0f}€")
+                with k2:
+                    st.metric("Écart vs médiane", f"{cmp_res['percentage_difference']:+.1f}%")
+                with k3:
+                    st.metric("Évaluation", cmp_res.get('score', 'N/A'))
+
+                rp = cmp_res.get('relative_position')
+                if rp:
+                    st.info(f"Position relative: {rp}")
+
+            # Message chatbot
+            add_chat_message(
+                "assistant",
+                f"📊 Estimation marché affichée pour {city} ({api_type}). Médiane: {market.get('price_per_sqm', 'N/A')}€/m² — Source: {market.get('source', 'N/A')}"
+            )
+
     except Exception as e:
         st.error(f"❌ Erreur estimation : {str(e)}")
 
