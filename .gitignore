@@ -1,0 +1,83 @@
+# Fichiers de cache et données temporaires
+cache/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Fichiers de configuration sensibles
+.env
+*.key
+keys.txt
+secrets.json
+
+# Logs
+*.log
+logs/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Données temporaires de test
+test_data/
+temp/
+tmp/
+
+# Images en cache
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+
+# Fichiers Excel générés
+*.xlsx
+*.xls
+reports/
+output/
+
+# Environnements virtuels Python
+venv/
+env/
+ENV/
+.venv/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
