@@ -14,7 +14,6 @@ from datetime import datetime
 # Import des modules essentiels seulement
 from utils.scraper import LeBonCoinScraper
 from utils.calculator import RentabilityCalculator
-from utils.immo_api import ImmoAPI
 from api.ai_assistant import AIAssistant
 
 # Configuration de la page
@@ -195,11 +194,11 @@ const price = document.querySelector('[data-qa-id="adview_price"]')?.textContent
 console.log('Prix:', price);
 
 // Surface  
-const surface = document.body.textContent.match(/(\d+)\s*m²/)?.[1];
+const surface = document.body.textContent.match(/(\\d+)\\s*m²/)?.[1];
 console.log('Surface:', surface + ' m²');
 
 // Pièces
-const rooms = document.body.textContent.match(/(\d+)\s*pièce/i)?.[1];
+const rooms = document.body.textContent.match(/(\\d+)\\s*pièce/i)?.[1];
 console.log('Pièces:', rooms);
 ```
 
@@ -288,36 +287,56 @@ def results_interface():
         """)
 
 def estimate_with_api(property_data):
-    """Estime un bien avec l'API"""
+    """Estime un bien avec calcul local simple"""
     try:
         with st.spinner("🔍 Estimation en cours..."):
-            api = ImmoAPI()
-            estimation = api.estimate_property_value(
-                property_data.get('surface', 0),
-                property_data.get('rooms', 0),
-                property_data.get('city', ''),
-                property_data.get('property_type', 'Appartement')
-            )
+            # Estimation simple basée sur des moyennes de marché
+            surface = property_data.get('surface', 0)
+            city = property_data.get('city', '').lower()
+            property_type = property_data.get('property_type', '').lower()
             
-            if estimation.get('estimated_value'):
-                st.success(f"💰 **Valeur estimée :** {estimation['estimated_value']:,}€")
-                
-                # Comparaison avec le prix annoncé
-                asking_price = property_data.get('price', 0)
-                if asking_price > 0:
-                    difference = asking_price - estimation['estimated_value']
-                    percentage = (difference / estimation['estimated_value']) * 100
-                    
-                    if percentage > 10:
-                        st.warning(f"⚠️ Prix supérieur de {percentage:.0f}% à l'estimation")
-                    elif percentage < -10:
-                        st.success(f"✅ Bon prix ! {abs(percentage):.0f}% en dessous de l'estimation")
-                    else:
-                        st.info(f"ℹ️ Prix proche de l'estimation ({percentage:+.0f}%)")
-                        
-                add_chat_message("assistant", f"📊 **Estimation réalisée :** {estimation['estimated_value']:,}€ pour ce bien")
+            if surface <= 0:
+                st.warning("⚠️ Surface requise pour l'estimation")
+                return
+            
+            # Prix moyens au m² par type de ville (estimation approximative)
+            if any(ville in city for ville in ['paris', 'neuilly', 'boulogne']):
+                base_price_m2 = 8000  # Paris et proche banlieue
+            elif any(ville in city for ville in ['lyon', 'marseille', 'nice', 'cannes']):
+                base_price_m2 = 4000  # Grandes villes
+            elif any(ville in city for ville in ['nantes', 'bordeaux', 'lille', 'toulouse']):
+                base_price_m2 = 3000  # Métropoles
             else:
-                st.warning("⚠️ Estimation impossible avec les données disponibles")
+                base_price_m2 = 2000  # Autres villes
+            
+            # Ajustement par type de bien
+            if 'maison' in property_type:
+                multiplier = 0.9  # Maisons souvent moins chères au m²
+            elif 'studio' in property_type:
+                multiplier = 1.2  # Studios plus chers au m²
+            else:
+                multiplier = 1.0  # Appartement
+            
+            estimated_value = int(surface * base_price_m2 * multiplier)
+            
+            st.info(f"💰 **Estimation locale :** {estimated_value:,}€")
+            st.caption(f"Basé sur {base_price_m2 * multiplier:,.0f}€/m² pour {city}")
+            
+            # Comparaison avec le prix annoncé
+            asking_price = property_data.get('price', 0)
+            if asking_price > 0:
+                difference = asking_price - estimated_value
+                percentage = (difference / estimated_value) * 100
+                
+                if percentage > 15:
+                    st.warning(f"⚠️ Prix supérieur de {percentage:.0f}% à l'estimation locale")
+                elif percentage < -15:
+                    st.success(f"✅ Bon prix ! {abs(percentage):.0f}% en dessous de l'estimation")
+                else:
+                    st.info(f"ℹ️ Prix proche de l'estimation locale ({percentage:+.0f}%)")
+                    
+            add_chat_message("assistant", f"📊 **Estimation locale réalisée :** {estimated_value:,}€ pour ce bien à {city}")
+            
     except Exception as e:
         st.error(f"❌ Erreur estimation : {str(e)}")
 
