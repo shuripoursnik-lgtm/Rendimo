@@ -47,6 +47,34 @@ class PriceAPI:
         # URL géo
         self.geo_api_url = "https://geo.api.gouv.fr/communes"
         
+        # Prix moyens de référence (source: DVF 2024, €/m²)
+        # Utilisés en fallback si API DVF inaccessible
+        self.reference_prices = {
+            # Grandes villes
+            'paris': {'apartment': 10800, 'house': 12500},
+            'lyon': {'apartment': 5100, 'house': 5800},
+            'marseille': {'apartment': 3800, 'house': 4200},
+            'toulouse': {'apartment': 4100, 'house': 4500},
+            'nice': {'apartment': 5500, 'house': 6800},
+            'nantes': {'apartment': 4200, 'house': 4800},
+            'strasbourg': {'apartment': 3500, 'house': 4000},
+            'montpellier': {'apartment': 4000, 'house': 4600},
+            'bordeaux': {'apartment': 4800, 'house': 5400},
+            'lille': {'apartment': 3300, 'house': 3800},
+            'rennes': {'apartment': 3900, 'house': 4400},
+            'reims': {'apartment': 2400, 'house': 2800},
+            'toulon': {'apartment': 3600, 'house': 4200},
+            'grenoble': {'apartment': 3700, 'house': 4300},
+            'dijon': {'apartment': 2900, 'house': 3400},
+            'angers': {'apartment': 3100, 'house': 3600},
+            'nimes': {'apartment': 2700, 'house': 3200},
+            'villeurbanne': {'apartment': 4800, 'house': 5400},
+            'clermont-ferrand': {'apartment': 2500, 'house': 3000},
+            'aix-en-provence': {'apartment': 5200, 'house': 6500},
+            # Prix moyen national par défaut
+            '_default': {'apartment': 3200, 'house': 3600}
+        }
+        
         # Cache
         self._cache: Dict[str, Dict] = {}
         
@@ -84,7 +112,20 @@ class PriceAPI:
         if not transactions or len(transactions) < 3:
             transactions = self._query_dvf(insee_code, property_type, months=36)
         
+        # Fallback sur prix de référence si DVF inaccessible
         if not transactions or len(transactions) < 3:
+            logger.info(f"DVF inaccessible, utilisation prix de référence pour {city}")
+            ref_price = self._get_reference_price(city, property_type)
+            if ref_price:
+                return {
+                    "price_per_sqm": ref_price,
+                    "transaction_count": "N/A",
+                    "period": "Référence 2024",
+                    "city": city,
+                    "postal_code": postal_code,
+                    "property_type": property_type,
+                    "source": "Prix de référence (DVF inaccessible)",
+                }
             return {"error": f"Pas assez de transactions DVF ({len(transactions)})"}
         
         # Calcul
@@ -320,6 +361,22 @@ class PriceAPI:
             '_ts': time.time(),
             'data': data
         }
+    
+    def _get_reference_price(self, city: str, property_type: str) -> Optional[int]:
+        """Récupère prix de référence pour une ville"""
+        city_lower = city.lower().strip()
+        
+        # Recherche exacte
+        if city_lower in self.reference_prices:
+            return self.reference_prices[city_lower].get(property_type)
+        
+        # Recherche approximative (contient)
+        for ref_city, prices in self.reference_prices.items():
+            if ref_city != '_default' and ref_city in city_lower:
+                return prices.get(property_type)
+        
+        # Prix par défaut
+        return self.reference_prices['_default'].get(property_type)
 
 
 def test_api():
