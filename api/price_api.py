@@ -14,6 +14,7 @@ import requests
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from statistics import median
+from urllib.parse import quote
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -64,99 +65,43 @@ class PriceAPI:
                         city: str, 
                         postal_code: Optional[str] = None,
                         property_type: str = "apartment") -> Dict:
-        """Récupère les prix locaux avec DVF (médiane/p10/p90) si possible, sinon fallback.
+        """Retourne uniquement le prix moyen €/m² DVF (agrégat analyze) pour la commune.
 
-        Retourne toujours un dict avec les clés:
-        price_per_sqm, min_price, max_price, transaction_count, data_period,
-        city, property_type, source, confidence
+        - Si DVF indisponible: retourne {'error': 'Aucune estimation DVF disponible'}.
+        - Pas de fallback estimation.
         """
-        logger.info(f"Recherche des prix pour {city} ({property_type})")
+        logger.info(f"Recherche des prix (DVF-agrégat) pour {city} ({property_type})")
 
-        # 0) Normalisation géographique (INSEE)
         insee_code = self._resolve_insee(city, postal_code)
         months = 24
 
-        # 1) DVF avec cache si INSEE connu
-        if insee_code:
-            cache_key = f"{insee_code}:{property_type}:{months}"
-            stats = self._cache_get(cache_key)
-            if not stats:
-                try:
-                    txs = self._query_dvf(insee_code, property_type, months=months)
-                except Exception as e:
-                    logger.warning(f"Erreur _query_dvf: {e}")
-                    txs = []
-                try:
-                    stats = self._compute_stats(txs)
-                except Exception as e:
-                    logger.warning(f"Erreur _compute_stats: {e}")
-                    stats = {}
-                if stats:
-                    stats['period_months'] = months
-                    self._cache_set(cache_key, stats)
-            if stats and stats.get('count', 0) >= 5 and stats.get('median_m2'):
-                # Confiance basée sur volume + dispersion (plus tolérante pour petites villes)
-                cnt = stats['count']
-                if cnt < 5:
-                    base_conf = 0.2
-                elif cnt < 15:
-                    base_conf = 0.35
-                elif cnt <= 50:
-                    base_conf = 0.6
-                else:
-                    base_conf = 0.8
-                dispersion = 0.0
-                if stats.get('median_m2') and stats.get('p90_m2') is not None and stats.get('p10_m2') is not None:
-                    denom = stats['median_m2'] or 1
-                    dispersion = max(0.0, (stats['p90_m2'] - stats['p10_m2']) / denom)
-                adjust = max(0.0, 0.3 - min(0.3, dispersion))  # Plus l'intervalle est étroit, plus l'ajustement est grand
-                confidence = round(min(1.0, base_conf + adjust), 2)
+        if not insee_code:
+            return {"error": "Aucune estimation DVF disponible (INSEE introuvable)"}
 
-                return {
-                    "price_per_sqm": int(stats['median_m2']),
-                    "min_price": int(stats['p10_m2']) if stats.get('p10_m2') is not None else None,
-                    "max_price": int(stats['p90_m2']) if stats.get('p90_m2') is not None else None,
-                    "transaction_count": stats.get('count', 0),
-                    "data_period": f"{stats.get('period_months', months)} derniers mois",
-                    "city": city,
-                    "postal_code": postal_code,
-                    "property_type": property_type,
-                    "source": "DVF (API officielle)",
-                    "confidence": confidence,
-                    # Exposer aussi les bornes pour compare_property_price
-                    "p10_m2": stats.get('p10_m2'),
-                    "p90_m2": stats.get('p90_m2'),
-                }
+        cache_key = f"agg:{insee_code}:{property_type}:{months}"
+        cached = self._cache_get(cache_key)
+        if cached:
+            return cached
 
-        # 2) Fallback MeilleursAgents si clé fournie
-        if self.meilleurs_agents_key:
-            try:
-                ma = self._get_meilleurs_agents_prices(city, property_type)
-                if ma:
-                    ma['source'] = 'MeilleursAgents'
-                    # Confiance moyenne par défaut
-                    ma['confidence'] = 0.6
-                    return ma
-            except Exception as e:
-                logger.warning(f"Erreur MeilleursAgents: {e}")
+        agg = self._query_dvf_aggregate(insee_code, property_type, months=months)
+        if agg and agg.get("avg_m2"):
+            avg = float(agg["avg_m2"])
+            result = {
+                "price_per_sqm": int(round(avg)),
+                "min_price": None,
+                "max_price": None,
+                "transaction_count": agg.get("count") or "N/A",
+                "data_period": f"{months} derniers mois",
+                "city": city,
+                "postal_code": postal_code,
+                "property_type": property_type,
+                "source": "DVF (agrégat API)",
+                "confidence": None,
+            }
+            self._cache_set(cache_key, result)
+            return result
 
-        # 3) Fallback estimation locale (faible confiance)
-        est = self._get_estimated_prices(city, property_type)
-        est['source'] = 'Estimation'
-        # Normaliser la sortie aux clés demandées
-        result = {
-            "price_per_sqm": int(est.get('price_per_sqm', 0)) if est.get('price_per_sqm') else 0,
-            "min_price": int(est.get('min_price', 0)) if est.get('min_price') else 0,
-            "max_price": int(est.get('max_price', 0)) if est.get('max_price') else 0,
-            "transaction_count": est.get('transaction_count', 'N/A'),
-            "data_period": est.get('data_period', 'Estimation'),
-            "city": city,
-            "postal_code": postal_code,
-            "property_type": property_type,
-            "source": est.get('source', 'Estimation'),
-            "confidence": 0.3,
-        }
-        return result
+        return {"error": "Aucune estimation DVF disponible"}
 
     # ---------------------- Normalisation INSEE ----------------------
     def _resolve_insee(self, city: str, postal_code: Optional[str]) -> Optional[str]:
@@ -328,6 +273,109 @@ class PriceAPI:
         except Exception as e:
             logger.debug(f"_query_dvf error: {e}")
             return []
+
+    def _expand_insee_to_query(self, insee_code: str) -> List[str]:
+        """Déploie un code INSEE ville en codes d'arrondissements pour P/L/M.
+        Paris 75056 -> 75101..75120; Lyon 69123 -> 69381..69389; Marseille 13055 -> 13201..13216
+        Sinon retourne [insee_code].
+        """
+        try:
+            if insee_code == "75056":
+                return [f"751{str(i).zfill(2)}" for i in range(1, 21)]
+            if insee_code == "69123":
+                return [f"6938{i}" for i in range(1, 10)]
+            if insee_code == "13055":
+                return [f"132{str(i).zfill(2)}" for i in range(1, 17)]
+            return [insee_code]
+        except Exception:
+            return [insee_code]
+
+    def _query_dvf_aggregate(self, insee_code: str, property_type: str, months: int = 24) -> Optional[Dict]:
+        """Agrégat DVF via endpoint 'analyze' pour obtenir un €/m² moyen par commune.
+
+        Retour: {'avg_m2': float, 'count': Optional[int], 'period_months': int} ou None.
+        """
+        try:
+            base_urls = []
+            env_base = os.getenv("DVF_API_BASE_URL")
+            if env_base:
+                # Normaliser vers /analyze/
+                if env_base.endswith("/search/"):
+                    env_base = env_base.replace("/search/", "/analyze/")
+                base_urls.append(env_base)
+            base_urls += [
+                "https://data.economie.gouv.fr/api/records/1.0/analyze/",
+                "https://api.etalab.gouv.fr/api/records/1.0/analyze/",
+            ]
+            dataset = os.getenv("DVF_DATASET", "valeurs-foncieres")
+            type_local = "Appartement" if property_type == "apartment" else "Maison"
+
+            cutoff = (datetime.utcnow() - timedelta(days=max(1, months) * 30)).strftime("%Y-%m-%d")
+            where = f'date_mutation >= "{cutoff}"'
+            headers = {"Accept": "application/json", "User-Agent": "Rendimo-Assistant/1.0"}
+
+            def do_request(base_url: str) -> Optional[Dict]:
+                try:
+                    total_price = 0.0
+                    total_surf = 0.0
+                    # pour P/L/M, on agrège les arrondissements
+                    for code in self._expand_insee_to_query(insee_code):
+                        qs = (
+                            f"dataset={quote(dataset)}"
+                            f"&x=code_commune"
+                            f"&y.sum=valeur_fonciere"
+                            f"&y.sum=surface_reelle_bati"
+                            f"&refine.nature_mutation=Vente"
+                            f"&refine.type_local={quote(type_local)}"
+                            f"&refine.code_commune={quote(code)}"
+                            f"&where={quote(where)}"
+                        )
+                        url = f"{base_url}?{qs}"
+                        resp = self.session.get(url, headers=headers, timeout=10)
+                        if resp.status_code != 200:
+                            continue
+                        data = resp.json() or {}
+                        series = data.get("series") or []
+                        if not series:
+                            continue
+                        # series est une liste de séries; chacune possède une clé 'serie' et une liste 'data' ou 'values'
+                        sum_price = None
+                        sum_surf = None
+                        for s in series:
+                            try:
+                                label = str(s.get("serie", "")).lower()
+                                datapoints = s.get("data") or s.get("values") or []
+                                # On prend le 1er point (refine.code_commune filtre déjà)
+                                if not datapoints:
+                                    continue
+                                yval = datapoints[0].get("y") if isinstance(datapoints[0], dict) else None
+                                if yval is None:
+                                    continue
+                                if "valeur" in label:
+                                    sum_price = float(yval)
+                                elif "surface_reelle_bati" in label or "surface" in label:
+                                    sum_surf = float(yval)
+                            except Exception:
+                                continue
+                        if sum_price and sum_surf and sum_surf > 0:
+                            total_price += sum_price
+                            total_surf += sum_surf
+                    if total_price > 0 and total_surf > 0:
+                        avg_m2 = total_price / total_surf
+                        return {"avg_m2": avg_m2, "count": None, "period_months": months}
+                    return None
+                except requests.exceptions.RequestException:
+                    return None
+                except Exception:
+                    return None
+
+            for base in base_urls:
+                out = do_request(base)
+                if out:
+                    return out
+            return None
+        except Exception:
+            return None
 
     def _compute_stats(self, transactions: List[Dict]) -> Dict:
         """Calcule median/p10/p90 sur les prix au m² à partir d'une liste de transactions.
