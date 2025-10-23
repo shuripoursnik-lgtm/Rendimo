@@ -15,7 +15,7 @@ from datetime import datetime
 from utils.scraper import LeBonCoinScraper
 from utils.calculator import RentabilityCalculator
 from api.ai_assistant import AIAssistant
-from api.price_api import PriceAPI
+from api.price_api_dvf import DVFPriceAPI
 
 # Configuration de la page
 st.set_page_config(
@@ -282,7 +282,7 @@ def results_interface():
         st.divider()
 
         # Estimation via API intégrée
-        st.subheader("💰 Estimation de marché (DVF)")
+        st.subheader("💰 Estimation de marché")
 
         if st.button("🔍 Estimer avec données locales"):
             estimate_with_api(property_data)
@@ -321,7 +321,7 @@ def results_interface():
         """)
 
 def estimate_with_api(property_data):
-    """Estime un bien via PriceAPI en DVF (agrégat). Si indisponible, indique l'absence d'estimation."""
+    """Estime un bien via SimplePriceAPI avec score de fiabilité"""
     try:
         with st.spinner("🔍 Estimation en cours..."):
             # Pré-requis
@@ -335,38 +335,42 @@ def estimate_with_api(property_data):
             postal_code = property_data.get('postal_code', None)
             raw_type = (property_data.get('property_type') or '').lower()
 
-            # Mapping type vers PriceAPI (apartment|house)
+            # Mapping type vers DVFPriceAPI (apartment|house)
             if 'maison' in raw_type:
                 api_type = 'house'
             else:
                 api_type = 'apartment'
 
-            api = PriceAPI()
-            market = api.get_local_prices(city=city, postal_code=postal_code, property_type=api_type)
+            api = DVFPriceAPI(use_lite=False)  # Utilise la base FULL avec toutes les villes
+            market = api.get_price_estimate(city=city, postal_code=postal_code, property_type=api_type)
 
             if market.get('error'):
-                st.info("ℹ️ Aucune estimation DVF disponible pour cette commune/période.")
-                add_chat_message("assistant", "ℹ️ DVF ne renvoie aucune donnée exploitable pour cette commune/période.")
+                st.info("ℹ️ Aucune estimation disponible pour cette commune.")
+                add_chat_message("assistant", "ℹ️ Impossible d'estimer le prix pour cette zone.")
                 return
 
             # Sauvegarde en session pour chatbot/usage ultérieur
             st.session_state['market_data'] = market
 
-            # Affichage des métriques marché
+            # Affichage simplifié des métriques marché
             st.markdown("### 📈 Marché local")
-            m1, m2, m3 = st.columns(3)
+            m1, m2, m3 = st.columns([2, 1, 1])
             with m1:
-                st.metric("Prix moyen €/m² (DVF)", f"{market.get('price_per_sqm', 0):,}€")
+                st.metric("Prix moyen €/m²", f"{market.get('price_per_sqm', 0):,}€")
             with m2:
-                st.metric("Intervalle P10–P90", "N/A")
+                # Score de fiabilité avec indicateur visuel
+                reliability = market.get('reliability_score', 0)
+                transaction_count = market.get('transaction_count', 0)
+                if reliability >= 85:
+                    icon = "🟢"
+                elif reliability >= 70:
+                    icon = "🟡"
+                else:
+                    icon = "🟠"
+                st.metric("Fiabilité", f"{icon} {reliability}% ({transaction_count} trans.)")
             with m3:
-                st.metric("Transactions", f"{market.get('transaction_count', 'N/A')}")
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.caption(f"Période: {market.get('data_period', 'N/A')}")
-            with c2:
-                st.caption(f"Source: {market.get('source', 'N/A')}")
+                st.caption("**Source:**")
+                st.caption(market.get('source', 'N/A'))
 
             # Comparaison du bien vs marché
             st.markdown("### 🧮 Comparaison du bien")
@@ -378,16 +382,17 @@ def estimate_with_api(property_data):
                 with k1:
                     st.metric("Prix du bien €/m²", f"{cmp_res['property_price_per_sqm']:.0f}€")
                 with k2:
-                    st.metric("Écart vs prix moyen", f"{cmp_res['percentage_difference']:+.1f}%")
+                    st.metric("Écart vs marché", f"{cmp_res['percentage_difference']:+.1f}%")
                 with k3:
                     st.metric("Évaluation", cmp_res.get('score', 'N/A'))
 
-                # Plus d'intervalle P10–P90 -> pas de position relative
-
-            # Message chatbot
+            # Message chatbot avec source et fiabilité
             add_chat_message(
                 "assistant",
-                f"📊 Estimation DVF affichée pour {city} ({api_type}). Prix moyen: {market.get('price_per_sqm', 'N/A')}€/m² — Source: {market.get('source', 'N/A')}"
+                f"📊 Estimation affichée pour {city} ({api_type}). "
+                f"Prix moyen: {market.get('price_per_sqm', 'N/A')}€/m² — "
+                f"Source: {market.get('source', 'N/A')} — "
+                f"Fiabilité: {market.get('reliability_score', 'N/A')}%"
             )
 
     except Exception as e:

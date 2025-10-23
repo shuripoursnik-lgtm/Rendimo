@@ -84,3 +84,7 @@ dmypy.json
 
 # Price cache
 .cache_prices/
+
+# Fichiers DVF bruts (trop volumineux)
+data/valeursfoncieres-*.txt
+data/*_dvf_*.txt
