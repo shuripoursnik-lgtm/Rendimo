@@ -83,7 +83,7 @@ class PriceAPI:
         if cached:
             return cached
 
-        agg = self._query_dvf_aggregate(insee_code, property_type, months=months)
+        agg = self._query_dvf_aggregate(insee_code, property_type, months=months, city=city, postal_code=postal_code)
         if agg and agg.get("avg_m2"):
             avg = float(agg["avg_m2"])
             result = {
@@ -290,7 +290,7 @@ class PriceAPI:
         except Exception:
             return [insee_code]
 
-    def _query_dvf_aggregate(self, insee_code: str, property_type: str, months: int = 24) -> Optional[Dict]:
+    def _query_dvf_aggregate(self, insee_code: str, property_type: str, months: int = 24, city: Optional[str] = None, postal_code: Optional[str] = None) -> Optional[Dict]:
         """Agrégat DVF via endpoint 'analyze' pour obtenir un €/m² moyen par commune.
 
         Retour: {'avg_m2': float, 'count': Optional[int], 'period_months': int} ou None.
@@ -312,19 +312,60 @@ class PriceAPI:
 
             cutoff = (datetime.utcnow() - timedelta(days=max(1, months) * 30)).strftime("%Y-%m-%d")
             where = f'date_mutation >= "{cutoff}"'
+            # Fallback période plus large si aucune donnée (36 mois)
+            cutoff_wide = (datetime.utcnow() - timedelta(days=36 * 30)).strftime("%Y-%m-%d")
+            where_wide = f'date_mutation >= "{cutoff_wide}"'
             headers = {"Accept": "application/json", "User-Agent": "Rendimo-Assistant/1.0"}
+
+            def extract_sums_from_series(data_json: Dict, codes_filter: Optional[List[str]] = None) -> Tuple[float, float]:
+                """Extrait la somme des valeurs et des surfaces depuis le JSON analyze.
+
+                Si codes_filter est fourni, on agrège uniquement les points dont x est dans cette liste.
+                """
+                total_price = 0.0
+                total_surf = 0.0
+                series = data_json.get("series") or []
+                if not series:
+                    return (0.0, 0.0)
+                # On s'attend à 2 séries: sum(valeur_fonciere) et sum(surface_reelle_bati)
+                sum_price_map: Dict[str, float] = {}
+                sum_surf_map: Dict[str, float] = {}
+                for s in series:
+                    label = str(s.get("serie", "")).lower()
+                    datapoints = s.get("data") or s.get("values") or []
+                    for pt in datapoints:
+                        try:
+                            xcode = str(pt.get("x")) if isinstance(pt, dict) else None
+                            yval = float(pt.get("y")) if isinstance(pt, dict) and pt.get("y") is not None else None
+                            if xcode is None or yval is None:
+                                continue
+                            if codes_filter and xcode not in codes_filter:
+                                continue
+                            if "valeur" in label:
+                                sum_price_map[xcode] = sum_price_map.get(xcode, 0.0) + yval
+                            elif "surface_reelle_bati" in label or "surface" in label:
+                                sum_surf_map[xcode] = sum_surf_map.get(xcode, 0.0) + yval
+                        except Exception:
+                            continue
+                # Agréger sur les codes
+                all_codes = set(sum_price_map.keys()) | set(sum_surf_map.keys())
+                for c in all_codes:
+                    sp = sum_price_map.get(c, 0.0)
+                    ss = sum_surf_map.get(c, 0.0)
+                    total_price += sp
+                    total_surf += ss
+                return (total_price, total_surf)
 
             def do_request(base_url: str) -> Optional[Dict]:
                 try:
                     total_price = 0.0
                     total_surf = 0.0
-                    # pour P/L/M, on agrège les arrondissements
-                    for code in self._expand_insee_to_query(insee_code):
+                    # 1) Essai direct: refines par code_commune (avec expansion P/L/M)
+                    exp_codes = self._expand_insee_to_query(insee_code)
+                    for code in exp_codes:
                         qs = (
-                            f"dataset={quote(dataset)}"
-                            f"&x=code_commune"
-                            f"&y.sum=valeur_fonciere"
-                            f"&y.sum=surface_reelle_bati"
+                            f"dataset={quote(dataset)}&x=code_commune"
+                            f"&y.sum=valeur_fonciere&y.sum=surface_reelle_bati"
                             f"&refine.nature_mutation=Vente"
                             f"&refine.type_local={quote(type_local)}"
                             f"&refine.code_commune={quote(code)}"
@@ -332,37 +373,93 @@ class PriceAPI:
                         )
                         url = f"{base_url}?{qs}"
                         resp = self.session.get(url, headers=headers, timeout=10)
-                        if resp.status_code != 200:
-                            continue
-                        data = resp.json() or {}
-                        series = data.get("series") or []
-                        if not series:
-                            continue
-                        # series est une liste de séries; chacune possède une clé 'serie' et une liste 'data' ou 'values'
-                        sum_price = None
-                        sum_surf = None
-                        for s in series:
+                        if resp.status_code == 200:
+                            sp, ss = extract_sums_from_series(resp.json() or {})
+                            total_price += sp
+                            total_surf += ss
+                        else:
                             try:
-                                label = str(s.get("serie", "")).lower()
-                                datapoints = s.get("data") or s.get("values") or []
-                                # On prend le 1er point (refine.code_commune filtre déjà)
-                                if not datapoints:
-                                    continue
-                                yval = datapoints[0].get("y") if isinstance(datapoints[0], dict) else None
-                                if yval is None:
-                                    continue
-                                if "valeur" in label:
-                                    sum_price = float(yval)
-                                elif "surface_reelle_bati" in label or "surface" in label:
-                                    sum_surf = float(yval)
+                                logger.info(f"DVF analyze status {resp.status_code} (code_commune) via {base_url}")
                             except Exception:
-                                continue
-                        if sum_price and sum_surf and sum_surf > 0:
-                            total_price += sum_price
-                            total_surf += sum_surf
+                                pass
                     if total_price > 0 and total_surf > 0:
-                        avg_m2 = total_price / total_surf
-                        return {"avg_m2": avg_m2, "count": None, "period_months": months}
+                        return {"avg_m2": total_price / total_surf, "count": None, "period_months": months}
+
+                    # 2) Fallback par code_postal si fourni: on regroupe par code_commune et on filtre nos codes
+                    if postal_code:
+                        qs = (
+                            f"dataset={quote(dataset)}&x=code_commune"
+                            f"&y.sum=valeur_fonciere&y.sum=surface_reelle_bati"
+                            f"&refine.nature_mutation=Vente"
+                            f"&refine.type_local={quote(type_local)}"
+                            f"&refine.code_postal={quote(str(postal_code))}"
+                            f"&where={quote(where)}"
+                        )
+                        url = f"{base_url}?{qs}"
+                        resp = self.session.get(url, headers=headers, timeout=10)
+                        if resp.status_code == 200:
+                            sp, ss = extract_sums_from_series(resp.json() or {}, codes_filter=exp_codes)
+                            total_price += sp
+                            total_surf += ss
+                        else:
+                            try:
+                                logger.info(f"DVF analyze status {resp.status_code} (code_postal) via {base_url}")
+                            except Exception:
+                                pass
+                        if total_price > 0 and total_surf > 0:
+                            return {"avg_m2": total_price / total_surf, "count": None, "period_months": months}
+
+                    # 3) Fallback par nom de commune si fourni: group by code_commune, filtre codes
+                    if city:
+                        commune = city.upper()
+                        # Essai avec nom_commune
+                        for refine_field in ("nom_commune", "commune"):
+                            qs = (
+                                f"dataset={quote(dataset)}&x=code_commune"
+                                f"&y.sum=valeur_fonciere&y.sum=surface_reelle_bati"
+                                f"&refine.nature_mutation=Vente"
+                                f"&refine.type_local={quote(type_local)}"
+                                f"&refine.{refine_field}={quote(commune)}"
+                                f"&where={quote(where)}"
+                            )
+                            url = f"{base_url}?{qs}"
+                            resp = self.session.get(url, headers=headers, timeout=10)
+                            if resp.status_code == 200:
+                                sp, ss = extract_sums_from_series(resp.json() or {}, codes_filter=exp_codes)
+                                total_price += sp
+                                total_surf += ss
+                                if total_price > 0 and total_surf > 0:
+                                    return {"avg_m2": total_price / total_surf, "count": None, "period_months": months}
+                            else:
+                                try:
+                                    logger.info(f"DVF analyze status {resp.status_code} ({refine_field}) via {base_url}")
+                                except Exception:
+                                    pass
+
+                    # 4) Fallback période élargie (36 mois) sur code_commune
+                    if total_price == 0.0 and total_surf == 0.0:
+                        for code in exp_codes:
+                            qs = (
+                                f"dataset={quote(dataset)}&x=code_commune"
+                                f"&y.sum=valeur_fonciere&y.sum=surface_reelle_bati"
+                                f"&refine.nature_mutation=Vente"
+                                f"&refine.type_local={quote(type_local)}"
+                                f"&refine.code_commune={quote(code)}"
+                                f"&where={quote(where_wide)}"
+                            )
+                            url = f"{base_url}?{qs}"
+                            resp = self.session.get(url, headers=headers, timeout=10)
+                            if resp.status_code == 200:
+                                sp, ss = extract_sums_from_series(resp.json() or {})
+                                total_price += sp
+                                total_surf += ss
+                            else:
+                                try:
+                                    logger.info(f"DVF analyze status {resp.status_code} (wide period) via {base_url}")
+                                except Exception:
+                                    pass
+                        if total_price > 0 and total_surf > 0:
+                            return {"avg_m2": total_price / total_surf, "count": None, "period_months": months}
                     return None
                 except requests.exceptions.RequestException:
                     return None
