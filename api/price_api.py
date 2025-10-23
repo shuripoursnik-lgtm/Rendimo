@@ -94,9 +94,17 @@ class PriceAPI:
                 if stats:
                     stats['period_months'] = months
                     self._cache_set(cache_key, stats)
-            if stats and stats.get('count', 0) >= 15 and stats.get('median_m2'):
-                # Confiance basée sur volume + dispersion
-                base_conf = 0.3 if stats['count'] < 15 else (0.6 if stats['count'] <= 50 else 0.8)
+            if stats and stats.get('count', 0) >= 5 and stats.get('median_m2'):
+                # Confiance basée sur volume + dispersion (plus tolérante pour petites villes)
+                cnt = stats['count']
+                if cnt < 5:
+                    base_conf = 0.2
+                elif cnt < 15:
+                    base_conf = 0.35
+                elif cnt <= 50:
+                    base_conf = 0.6
+                else:
+                    base_conf = 0.8
                 dispersion = 0.0
                 if stats.get('median_m2') and stats.get('p90_m2') is not None and stats.get('p10_m2') is not None:
                     denom = stats['median_m2'] or 1
@@ -113,7 +121,7 @@ class PriceAPI:
                     "city": city,
                     "postal_code": postal_code,
                     "property_type": property_type,
-                    "source": "DVF (computed)",
+                    "source": "DVF (API officielle)",
                     "confidence": confidence,
                     # Exposer aussi les bornes pour compare_property_price
                     "p10_m2": stats.get('p10_m2'),
@@ -176,16 +184,146 @@ class PriceAPI:
 
     # ---------------------- DVF plugin & stats ----------------------
     def _query_dvf(self, insee_code: str, property_type: str, months: int = 24) -> List[Dict]:
-        """Récupère la liste des transactions DVF pour un code INSEE et un type.
+        """Récupère les transactions DVF via l'API data.economie.gouv.fr (Opendatasoft).
 
-        TODO: Brancher ici une vraie API DVF (ETALAB / data.gouv) quand disponible.
-        Cette implémentation MVP retourne une liste vide pour ne pas bloquer.
+        Paramètres:
+            insee_code: code INSEE commune (ex: 17433)
+            property_type: 'apartment' | 'house'
+            months: fenêtre temporelle récente à considérer
+
+        Retour:
+            Liste de dicts: {price, surface, type, date}
         """
         try:
-            # Point d'injection futur:
-            # dvf_api_url = os.getenv("DVF_API_URL")
-            # if dvf_api_url:
-            #     ... appeler l'API, transformer la réponse en liste de dicts standardisés
+            env_base = os.getenv("DVF_API_BASE_URL")
+            base_urls = [env_base] if env_base else []
+            base_urls += [
+                "https://data.economie.gouv.fr/api/records/1.0/search/",
+                "https://api.etalab.gouv.fr/api/records/1.0/search/",
+            ]
+            dataset = os.getenv("DVF_DATASET", "valeurs-foncieres")
+
+            # Mapping type_local DVF
+            type_local = "Appartement" if property_type == "apartment" else "Maison"
+
+            # Période de filtre locale (côté client)
+            cutoff = datetime.utcnow() - timedelta(days=max(1, months) * 30)
+
+            params = {
+                "dataset": dataset,
+                "rows": os.getenv("DVF_ROWS", "1000"),  # plafond raisonnable
+                "sort": "-date_mutation",
+                "refine.nature_mutation": "Vente",
+                "refine.code_commune": insee_code,
+                "refine.type_local": type_local,
+            }
+
+            # Option: clé API ODS (non nécessaire en public)
+            headers = {"Accept": "application/json", "User-Agent": "Rendimo-Assistant/1.0"}
+            records = []
+            last_status = None
+            for base_url in base_urls:
+                try:
+                    resp = self.session.get(base_url, params=params, headers=headers, timeout=10)
+                    last_status = resp.status_code
+                    if resp.status_code == 200:
+                        data = resp.json() or {}
+                        records = data.get("records", []) or []
+                        break
+                except requests.exceptions.RequestException:
+                    continue
+            if not records:
+                if last_status:
+                    logger.info(f"DVF HTTP {last_status} pour commune {insee_code}")
+                return []
+
+            txs: List[Dict] = []
+            for rec in records:
+                fields = rec.get("fields", {})
+                try:
+                    price = fields.get("valeur_fonciere")
+                    surf = fields.get("surface_reelle_bati")
+                    tloc = fields.get("type_local")
+                    d = fields.get("date_mutation")
+                    if not price or not surf or not d:
+                        continue
+                    # Filtre date
+                    date_str = str(d)[:10]
+                    try:
+                        d_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                    except Exception:
+                        # DVF date parfois "YYYY/MM/DD"
+                        try:
+                            d_obj = datetime.strptime(date_str.replace("/", "-"), "%Y-%m-%d")
+                        except Exception:
+                            continue
+                    if d_obj < cutoff:
+                        continue
+
+                    # Map type
+                    norm_type = "apartment" if str(tloc).lower().startswith("appartement") else (
+                        "house" if str(tloc).lower().startswith("maison") else None
+                    )
+                    if norm_type and norm_type != property_type:
+                        # Par sécurité, garder seulement le type demandé
+                        continue
+                    txs.append({
+                        "price": float(price),
+                        "surface": float(surf),
+                        "type": norm_type or property_type,
+                        "date": date_str,
+                    })
+                except Exception:
+                    continue
+
+            # Si rien via code_commune (cas Lyon arrondissements), tentative légère via code département
+            if not txs and len(insee_code) >= 2:
+                dep = insee_code[:2]
+                params_fallback = {
+                    "dataset": dataset,
+                    "rows": os.getenv("DVF_ROWS", "1000"),
+                    "sort": "-date_mutation",
+                    "refine.nature_mutation": "Vente",
+                    "refine.code_departement": dep,
+                    "refine.type_local": type_local,
+                }
+                resp2 = None
+                for base_url in base_urls:
+                    try:
+                        r2 = self.session.get(base_url, params=params_fallback, headers=headers, timeout=10)
+                        if r2.status_code == 200:
+                            resp2 = r2
+                            break
+                    except requests.exceptions.RequestException:
+                        continue
+                if resp2 is not None and resp2.status_code == 200:
+                    data2 = resp2.json() or {}
+                    for rec in data2.get("records", []) or []:
+                        fields = rec.get("fields", {})
+                        try:
+                            if str(fields.get("code_commune")) != insee_code:
+                                continue
+                            price = fields.get("valeur_fonciere")
+                            surf = fields.get("surface_reelle_bati")
+                            d = fields.get("date_mutation")
+                            if not price or not surf or not d:
+                                continue
+                            date_str = str(d)[:10]
+                            d_obj = datetime.strptime(date_str.replace("/", "-"), "%Y-%m-%d")
+                            if d_obj < cutoff:
+                                continue
+                            txs.append({
+                                "price": float(price),
+                                "surface": float(surf),
+                                "type": property_type,
+                                "date": date_str,
+                            })
+                        except Exception:
+                            continue
+
+            return txs
+        except requests.exceptions.RequestException as e:
+            logger.info(f"Erreur réseau DVF: {e}")
             return []
         except Exception as e:
             logger.debug(f"_query_dvf error: {e}")
