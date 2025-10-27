@@ -67,9 +67,12 @@ class DVFPriceAPI:
         else:
             prop_type = 'other'
         
-        # Si pas de base DVF, fallback sur prix nationaux
+        # Si pas de base DVF, retourner erreur
         if not self.db_path:
-            return self._get_fallback_price(prop_type)
+            logger.error("Base de données DVF non disponible")
+            return {
+                'error': 'Base de données DVF non disponible. Exécutez scripts/process_dvf_data.py'
+            }
         
         try:
             conn = sqlite3.connect(self.db_path)
@@ -124,33 +127,22 @@ class DVFPriceAPI:
                     'transaction_count': int(count)
                 }
             
-            # 3. Fallback national si aucune correspondance
+            # 3. Aucune donnée trouvée - retourner erreur
             conn.close()
-            return self._get_fallback_price(prop_type, city=city)
+            logger.warning(f"Ville '{city}' non trouvée dans la base DVF S1 2025")
+            return {
+                'error': f"Aucune donnée DVF disponible pour {city}",
+                'city': city,
+                'property_type': prop_type
+            }
             
         except Exception as e:
             logger.error(f"Erreur requête DVF : {e}")
-            return self._get_fallback_price(prop_type)
-    
-    def _get_fallback_price(self, property_type: str, city: str = None) -> Dict:
-        """Prix de secours si ville non trouvée dans DVF"""
-        prices = {
-            'apartment': 3200,
-            'house': 3600,
-            'other': 3000
-        }
-        
-        source = 'Moyenne nationale DVF 2024'
-        if city:
-            source = f'Estimation nationale (ville "{city}" non trouvée dans DVF S1 2025)'
-        
-        return {
-            'price_per_sqm': prices.get(property_type, 3200),
-            'source': source,
-            'reliability_score': 60,
-            'data_period': 'Moyenne nationale',
-            'transaction_count': 0
-        }
+            return {
+                'error': f"Erreur lors de la recherche DVF : {str(e)}",
+                'city': city if city else 'inconnue',
+                'property_type': prop_type
+            }
     
     def compare_property_price(self, property_price: float, property_surface: float, 
                               market_data: Dict) -> Dict:

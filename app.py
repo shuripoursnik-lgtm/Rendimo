@@ -287,20 +287,36 @@ def results_interface():
         if st.button("🔍 Estimer avec données locales"):
             estimate_with_api(property_data)
 
-        # Calculs de rentabilité simples
-        st.subheader("📊 Analyse rapide")
+        # Calculs de rentabilité avec saisie du loyer
+        st.subheader("📊 Analyse de rentabilité")
 
         if property_data.get('price', 0) > 0 and property_data.get('surface', 0) > 0:
-            # Estimation loyer (prix/m² local * 0.8% par mois)
-            estimated_rent = int(property_data['price'] * 0.008)  # 0.8% par mois approximatif
-
-            col_calc1, col_calc2 = st.columns(2)
-            with col_calc1:
-                st.metric("Loyer estimé/mois", f"{estimated_rent}€", help="Estimation basée sur 0.8% du prix")
-            with col_calc2:
-                if estimated_rent > 0:
-                    annual_yield = (estimated_rent * 12 / property_data['price']) * 100
-                    st.metric("Rentabilité brute", f"{annual_yield:.1f}%")
+            # Champ de saisie du loyer estimé
+            loyer_suggest = int(property_data['price'] * 0.008)  # Suggestion 0.8% du prix
+            
+            monthly_rent = st.number_input(
+                "💶 Loyer mensuel estimé (€)",
+                min_value=0,
+                value=loyer_suggest,
+                step=50,
+                help="Estimez le loyer mensuel que vous pourriez obtenir"
+            )
+            
+            if monthly_rent > 0:
+                # Utiliser le calculator
+                calculator = RentabilityCalculator()
+                result = calculator.calculate_gross_yield(property_data['price'], monthly_rent)
+                
+                if 'error' not in result:
+                    col_calc1, col_calc2, col_calc3 = st.columns(3)
+                    with col_calc1:
+                        st.metric("Loyer annuel", f"{result['annual_rent']:,.0f}€")
+                    with col_calc2:
+                        st.metric("Rentabilité brute", f"{result['gross_yield']:.2f}%")
+                    with col_calc3:
+                        st.metric("Évaluation", result['evaluation'])
+                else:
+                    st.warning(f"⚠️ {result['error']}")
 
         # Bouton réinitialiser
         if st.button("🔄 Nouvelle analyse"):
@@ -335,10 +351,15 @@ def estimate_with_api(property_data):
             postal_code = property_data.get('postal_code', None)
             raw_type = (property_data.get('property_type') or '').lower()
 
-            # Mapping type vers DVFPriceAPI (apartment|house)
-            if 'maison' in raw_type:
+            # Mapping type LeBonCoin → DVF (apartment|house|other)
+            if 'maison' in raw_type or 'villa' in raw_type:
                 api_type = 'house'
+            elif 'appartement' in raw_type or 'studio' in raw_type or 'duplex' in raw_type:
+                api_type = 'apartment'
+            elif 'terrain' in raw_type or 'parking' in raw_type or 'garage' in raw_type:
+                api_type = 'other'
             else:
+                # Fallback par défaut : appartement pour tout le reste
                 api_type = 'apartment'
 
             api = DVFPriceAPI(use_lite=False)  # Utilise la base FULL avec toutes les villes
