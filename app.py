@@ -1,7 +1,8 @@
 """
-Rendimo - Assistant IA Immobilier (Version Simplifiée)
-Application Streamlit pour l'analyse d'investissements immobiliers
+Rendimo - Assistant IA Immobilier
+Application Streamlit pour l'analyse d'investissements immobiliers avec export Excel
 
+Version: 2.0 - Analyse détaillée avec export Excel
 Auteur: Assistant IA
 Date: Octobre 2024
 """
@@ -9,9 +10,14 @@ Date: Octobre 2024
 import streamlit as st
 import pandas as pd
 import os
+import shutil
 from datetime import datetime
+from pathlib import Path
 
-# Import des modules essentiels seulement
+# Excel handling
+from openpyxl import load_workbook
+
+# Import des modules métier
 from utils.scraper import LeBonCoinScraper
 from utils.calculator import RentabilityCalculator
 from api.ai_assistant import AIAssistant
@@ -56,23 +62,44 @@ if 'property_data' not in st.session_state:
     st.session_state.property_data = None
 
 def main():
-    """Interface principale simplifiée"""
+    """
+    Fonction principale de l'application Rendimo.
     
-    # Header
+    Structure:
+    - Interface à 3 onglets pour analyse de biens immobiliers
+    - Chat bot IA pour conseils personnalisés
+    - Export Excel avec données fiscales détaillées
+    """
+    
+    # ============================================================================
+    # EN-TÊTE APPLICATION
+    # ============================================================================
     st.markdown('<h1 class="main-header">🏠 Rendimo - Assistant IA Immobilier</h1>', unsafe_allow_html=True)
     
     # Layout principal avec deux colonnes
     col1, col2 = st.columns([1, 1])
     
+    # ============================================================================
+    # COLONNE 1: ANALYSE DE BIEN
+    # ============================================================================
     with col1:
-        # Section Analyse
         st.header("🔍 Analyse de bien")
         
-        # Onglets simplifiés
-        tab1, tab2 = st.tabs(["🔗 URL LeBonCoin", "📝 Saisie manuelle"])
+        # Interface à 3 onglets
+        tab1, tab2, tab3 = st.tabs(["🔗 URL LeBonCoin", "📝 Saisie manuelle", "📊 Analyse détaillée"])
         
+        # TAB 1: Scraping LeBonCoin avec disclaimer
         with tab1:
             st.write("**Analyser une annonce LeBonCoin :**")
+            
+            # Disclaimer d'usage responsable
+            st.info("""
+            ⚠️ **Utilisation responsable**
+            - Usage limité à 1-2 annonces par jour par utilisateur
+            - Données à usage personnel d'analyse uniquement
+            - Respect des conditions d'utilisation de LeBonCoin
+            - Aucune donnée personnelle du vendeur n'est collectée
+            """)
             
             url_input = st.text_input(
                 "URL de l'annonce :",
@@ -96,6 +123,10 @@ def main():
         with tab2:
             st.write("**Saisie manuelle des données :**")
             manual_input_form()
+        
+        with tab3:
+            st.write("**Analyse détaillée avec export Excel :**")
+            detailed_analysis_form()
         
         st.divider()
         
@@ -206,6 +237,290 @@ console.log('Pièces:', rooms);
 4. **Copier les résultats** dans "Saisie manuelle"
                     
 📖 **Guide complet :** `GUIDE_INSPECTEUR.md`""")
+
+def detailed_analysis_form():
+    """
+    Formulaire d'analyse détaillée avec export Excel.
+    
+    Collecte des informations supplémentaires pour générer un fichier Excel
+    personnalisé avec les données du bien immobilier et les paramètres
+    fiscaux selon la structure d'investissement (Nom propre ou SCI).
+    """
+    
+    # Vérification des prérequis
+    if not st.session_state.get('property_data'):
+        st.warning("⚠️ Veuillez d'abord analyser un bien via l'onglet 'URL LeBonCoin' ou 'Saisie manuelle'")
+        return
+    
+    property_data = st.session_state.property_data
+    
+    # Affichage du bien sélectionné
+    st.info(f"""
+    **📋 Bien sélectionné :**
+    - **Titre :** {property_data.get('title', 'N/A')}
+    - **Prix :** {property_data.get('price', 0):,}€
+    - **Surface :** {property_data.get('surface', 0)} m²
+    - **Ville :** {property_data.get('city', 'N/A')}
+    """)
+    
+    st.markdown("### 📊 Informations supplémentaires pour l'analyse")
+    
+    # Structure d'investissement - Hors formulaire pour mise à jour temps réel
+    st.subheader("🏛️ Structure d'investissement")
+    type_investissement = st.selectbox(
+        "Investissez-vous en nom propre ou via SCI ?", 
+        options=["Nom propre", "SCI"], 
+        index=0,
+        key="type_investissement"
+    )
+    
+    # Formulaire principal
+    with st.form("detailed_analysis"):
+        # Section 1: Caractéristiques du bien et financement
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("🏠 Caractéristiques du bien")
+            type_bien = st.selectbox("Neuf ou Occasion ?", options=["Occasion", "Neuf"], index=0)
+            loyer_hc = st.number_input("Loyer mensuel HC estimé (€)", min_value=0, value=800, step=25)
+            loyer_cc = st.number_input("Loyer mensuel CC estimé (€)", min_value=0, value=850, step=25)
+            cout_renovation = st.number_input("Coût des travaux de rénovation (€)", min_value=0, value=0, step=500)
+            cout_construction = st.number_input("Coût des travaux de construction (€)", min_value=0, value=0, step=500)
+            
+        with col2:
+            st.subheader("💰 Financement")
+            utilise_pret = st.selectbox("Vous utilisez un prêt ?", options=["Oui", "Non"], index=0)
+            apport_default = int(property_data.get('price', 0) * 0.15)  # 15% du prix
+            apport = st.number_input("Combien d'apport (€)", min_value=0, value=apport_default, step=1000)
+            duree_pret = st.number_input("Durée du prêt (années)", min_value=1, max_value=30, value=20, step=1)
+            taux_pret = st.number_input("Taux du prêt (%)", min_value=0.0, max_value=10.0, value=4.0, step=0.1)
+        
+        # Variables pour stocker les données fiscales
+        donnees_fiscales = {}
+        
+        if type_investissement == "Nom propre":
+            st.markdown("---")
+            st.markdown("**📋 Informations fiscales - Nom propre**")
+            col_np1, col_np2 = st.columns(2)
+            
+            with col_np1:
+                situation = st.selectbox("Situation ?", 
+                                       options=["Célibataire-divorcé-veuf", "Marié-pacsé"], 
+                                       index=0)
+                revenu_net = st.number_input("Revenu net global du foyer (€)", 
+                                           min_value=0, value=50000, step=1000)
+            
+            with col_np2:
+                nombre_enfants = st.number_input("Nombre d'enfants", 
+                                               min_value=0, max_value=10, value=0, step=1)
+            
+            donnees_fiscales = {
+                'type': 'nom_propre',
+                'situation': situation,
+                'revenu_net': revenu_net,
+                'nombre_enfants': nombre_enfants
+            }
+        
+        else:  # SCI
+            st.markdown("---")
+            st.markdown("**🏢 Informations SCI**")
+            col_sci1, col_sci2 = st.columns(2)
+            
+            with col_sci1:
+                capital_sci = st.number_input("Capital de la SCI (€)", 
+                                            min_value=0, value=1000, step=100)
+                nombre_associes = st.number_input("Nombre d'associés", 
+                                                min_value=1, max_value=4, value=2, step=1)
+            
+            # Informations pour chaque associé
+            associes = []
+            for i in range(int(nombre_associes)):
+                st.markdown(f"**👤 Associé {i+1}**")
+                col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+                
+                with col_a1:
+                    part = st.number_input(f"Part détenue (%)", 
+                                         min_value=0.0, max_value=100.0, 
+                                         value=50.0 if i == 0 else 50.0, 
+                                         step=1.0, key=f"part_{i}")
+                
+                with col_a2:
+                    situation_assoc = st.selectbox(f"Situation", 
+                                                 options=["Célibataire-divorcé-veuf", "Marié-pacsé"], 
+                                                 index=0, key=f"situation_{i}")
+                
+                with col_a3:
+                    revenu_assoc = st.number_input(f"Revenu net (€)", 
+                                                 min_value=0, value=50000, 
+                                                 step=1000, key=f"revenu_{i}")
+                
+                with col_a4:
+                    enfants_assoc = st.number_input(f"Enfants", 
+                                                  min_value=0, max_value=10, 
+                                                  value=0, step=1, key=f"enfants_{i}")
+                
+                associes.append({
+                    'part': part,
+                    'situation': situation_assoc,
+                    'revenu': revenu_assoc,
+                    'enfants': enfants_assoc
+                })
+            
+            donnees_fiscales = {
+                'type': 'sci',
+                'capital': capital_sci,
+                'nombre_associes': nombre_associes,
+                'associes': associes
+            }
+        
+        # Estimation à la revente
+        st.markdown("---")
+        st.subheader("📈 Plus-value")
+        estimation_revente_default = int(property_data.get('price', 0) * 1.2)  # 120% du prix
+        estimation_revente = st.number_input("Estimation à la revente (€)", 
+                                           min_value=0, value=estimation_revente_default, step=5000)
+        
+        submitted = st.form_submit_button("📁 Générer l'analyse Excel", type="primary")
+        
+        if submitted:
+            # Créer l'Excel avec les données
+            excel_file = generate_excel_analysis(property_data, {
+                'type_bien': type_bien,
+                'loyer_hc': loyer_hc,
+                'loyer_cc': loyer_cc,
+                'utilise_pret': utilise_pret,
+                'apport': apport,
+                'duree_pret': duree_pret,
+                'taux_pret': taux_pret,
+                'cout_renovation': cout_renovation,
+                'cout_construction': cout_construction,
+                'donnees_fiscales': donnees_fiscales,
+                'estimation_revente': estimation_revente
+            })
+            
+            if excel_file:
+                st.success("✅ Analyse Excel générée avec succès !")
+                # Stocker le fichier dans session_state pour le téléchargement
+                st.session_state['excel_file'] = excel_file
+                st.session_state['excel_filename'] = f"Rendimo_Analyse_{property_data.get('city', 'Bien')}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    
+    # Bouton de téléchargement en dehors du formulaire
+    if 'excel_file' in st.session_state and st.session_state['excel_file']:
+        with open(st.session_state['excel_file'], "rb") as file:
+            st.download_button(
+                label="💾 Télécharger l'analyse Excel",
+                data=file.read(),
+                file_name=st.session_state['excel_filename'],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+def generate_excel_analysis(property_data, additional_data):
+    """
+    Génère un fichier Excel personnalisé avec les données du bien immobilier.
+    
+    Args:
+        property_data (dict): Données du bien (prix, surface, ville, etc.)
+        additional_data (dict): Données supplémentaires du formulaire
+        
+    Returns:
+        str: Chemin vers le fichier Excel généré, ou None en cas d'erreur
+        
+    Mapping des données:
+        - Feuille "Frais de notaire": Prix (I3), Type bien (F3)
+        - Feuille "Coûts et rendement": Loyers, prêt, travaux
+        - Feuille "Nom propre - Fiscalité" ou "SCI": Données fiscales
+        - Feuille "Plus value": Estimation revente (E7)
+    """
+    try:
+        # Vérification du template
+        template_path = Path("Excel/Rendimmo - Rentabilité.xlsx")
+        if not template_path.exists():
+            st.error("❌ Fichier template Excel non trouvé")
+            return None
+        
+        # Ouverture directe du template et préparation du fichier de sortie
+        workbook = load_workbook(template_path)
+        output_path = Path(f"temp_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+        
+        # ============================================================================
+        # SECTION 1: FEUILLE "FRAIS DE NOTAIRE"
+        # ============================================================================
+        if "Frais de notaire" in workbook.sheetnames:
+            sheet_frais = workbook["Frais de notaire"]
+            sheet_frais["I3"] = property_data.get('price', 0)  # Prix du bien
+            sheet_frais["F3"] = additional_data.get('type_bien', 'Occasion')  # Type bien
+        
+        # ============================================================================
+        # SECTION 2: FEUILLE "COÛTS ET RENDEMENT"
+        # ============================================================================
+        sheet_cout = None
+        for sheet_name in workbook.sheetnames:
+            if "rendement" in sheet_name.lower():
+                sheet_cout = workbook[sheet_name]
+                break
+        
+        if sheet_cout:
+            # Données locatives
+            sheet_cout["D7"] = additional_data.get('loyer_hc', 0)      # Loyer HC
+            sheet_cout["D8"] = additional_data.get('loyer_cc', 0)      # Loyer CC
+            sheet_cout["D9"] = property_data.get('surface', 0)         # Surface
+            
+            # Données de financement
+            sheet_cout["D14"] = additional_data.get('utilise_pret', 'Oui')     # Prêt
+            sheet_cout["D15"] = additional_data.get('duree_pret', 20)          # Durée
+            sheet_cout["D16"] = additional_data.get('apport', 0)               # Apport
+            sheet_cout["D17"] = additional_data.get('taux_pret', 4.0) / 100    # Taux
+            
+            # Données travaux
+            sheet_cout["D21"] = additional_data.get('cout_renovation', 0)      # Rénovation
+            sheet_cout["D22"] = additional_data.get('cout_construction', 0)    # Construction
+        
+        # ============================================================================
+        # SECTION 3: DONNÉES FISCALES (NOM PROPRE OU SCI)
+        # ============================================================================
+        donnees_fiscales = additional_data.get('donnees_fiscales', {})
+        
+        if donnees_fiscales.get('type') == 'nom_propre':
+            # Feuille "Nom propre - Fiscalité"
+            if "Nom propre - Fiscalité" in workbook.sheetnames:
+                sheet_np = workbook["Nom propre - Fiscalité"]
+                sheet_np["D6"] = donnees_fiscales.get('revenu_net', 50000)    # Revenu net
+                sheet_np["D7"] = donnees_fiscales.get('situation', 'Célibataire-divorcé-veuf')  # Situation
+                sheet_np["D8"] = donnees_fiscales.get('nombre_enfants', 0)    # Enfants
+        
+        elif donnees_fiscales.get('type') == 'sci':
+            # Feuille "SCI"
+            if "SCI" in workbook.sheetnames:
+                sheet_sci = workbook["SCI"]
+                sheet_sci["D6"] = donnees_fiscales.get('capital', 1000)  # Capital SCI
+                
+                # Données des associés (maximum 4)
+                associes = donnees_fiscales.get('associes', [])
+                colonnes = ['D', 'E', 'F', 'G']  # Colonnes pour associés 1-4
+                
+                for i, associe in enumerate(associes[:4]):
+                    col = colonnes[i]
+                    sheet_sci[f"{col}8"] = associe.get('part', 50) / 100      # Part (%)
+                    sheet_sci[f"{col}10"] = associe.get('revenu', 50000)       # Revenu
+                    sheet_sci[f"{col}11"] = associe.get('situation', 'Célibataire-divorcé-veuf')  # Situation
+                    sheet_sci[f"{col}12"] = associe.get('enfants', 0)          # Enfants
+        
+        # ============================================================================
+        # SECTION 4: FEUILLE "PLUS VALUE"
+        # ============================================================================
+        if "Plus value" in workbook.sheetnames:
+            sheet_pv = workbook["Plus value"]
+            sheet_pv["E7"] = additional_data.get('estimation_revente', 0)  # Estimation revente
+        
+        # Sauvegarde du fichier Excel
+        workbook.save(output_path)
+        workbook.close()
+        
+        return str(output_path)
+        
+    except Exception as e:
+        st.error(f"❌ Erreur lors de la génération Excel : {str(e)}")
+        return None
 
 def chat_interface():
     """Interface de chat classique orientée immobilier (Streamlit chat)."""
