@@ -11,6 +11,7 @@ import streamlit as st
 import pandas as pd
 import os
 import shutil
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -438,6 +439,11 @@ def generate_google_sheets_analysis(property_data, additional_data):
         if not gs_manager.connect():
             return None
         
+        # Créer une copie temporaire du template
+        if not gs_manager.create_temporary_copy(property_data):
+            st.error("❌ Impossible de sauvegarder le template")
+            return None
+        
         # Mise à jour des données dans Google Sheets
         if not gs_manager.update_property_data(property_data, additional_data):
             return None
@@ -449,20 +455,66 @@ def generate_google_sheets_analysis(property_data, additional_data):
         st.markdown("---")
         st.markdown("### 📊 Indicateurs basés sur Google Sheets")
         
-        # Récupérer les données des charges calculées
+        # ============================================================================
+        # SECTION 1: CAMEMBERT DES CHARGES
+        # ============================================================================
+        
         charges_data = gs_manager.get_charges_data()
         
         if charges_data:
-            # Créer le camembert des charges
             create_charges_pie_chart(charges_data)
         else:
             st.warning("⚠️ Impossible de récupérer les données des charges")
         
         # ============================================================================
+        # SECTION 2: INDICATEURS FISCAUX (selon le régime choisi)
+        # ============================================================================
+        
+        st.markdown("---")
+        donnees_fiscales = additional_data.get('donnees_fiscales', {})
+        type_regime = donnees_fiscales.get('type', 'nom_propre')
+        
+        if type_regime:
+            st.markdown(f"### 📋 Analyse fiscale - Régime {type_regime.replace('_', ' ').title()}")
+            create_fiscalite_charts(gs_manager, type_regime)
+        
+        # ============================================================================
+        # SECTION 3: PLUS-VALUE
+        # ============================================================================
+        
+        st.markdown("---")
+        create_plus_value_chart(gs_manager)
+        
+        # ============================================================================
+        # SECTION 4: AMORTISSEMENT DU PRÊT
+        # ============================================================================
+        
+        st.markdown("---")
+        create_amortissement_chart(gs_manager)
+        
+        # ============================================================================
         # EXPORT EXCEL POUR TÉLÉCHARGEMENT
         # ============================================================================
         
+        st.markdown("---")
         excel_path = gs_manager.export_to_excel(property_data)
+        
+        # ============================================================================ 
+        # BOUTON DE RESTAURATION MANUELLE (optionnel)
+        # ============================================================================
+        
+        st.markdown("---")
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.info("ℹ️ Le template sera automatiquement restauré dans 15 minutes. Vous pouvez aussi le faire maintenant :")
+        
+        with col2:
+            if st.button("🔄 Restaurer maintenant", type="secondary"):
+                if gs_manager.delete_temporary_copy():
+                    st.success("✅ Template restauré !")
+                else:
+                    st.error("❌ Erreur restauration")
         
         if excel_path:
             st.success("✅ Analyse Google Sheets terminée avec succès !")
@@ -473,6 +525,13 @@ def generate_google_sheets_analysis(property_data, additional_data):
         
     except Exception as e:
         st.error(f"❌ Erreur analyse Google Sheets : {str(e)}")
+        
+        # En cas d'erreur, s'assurer de restaurer le template original
+        try:
+            gs_manager.delete_temporary_copy()
+        except:
+            pass
+        
         import traceback
         st.code(traceback.format_exc())
         return None
@@ -545,50 +604,299 @@ def create_charges_pie_chart(charges_data):
         # Afficher le graphique
         st.plotly_chart(fig_pie, use_container_width=True)
         
-        # ============================================================================
-        # TABLEAU DÉTAILLÉ
-        # ============================================================================
+    except Exception as e:
+        st.error(f"❌ Erreur création camembert : {str(e)}")
+        st.code(traceback.format_exc())
+
+def create_fiscalite_charts(gs_manager, type_regime):
+    """Crée les graphiques fiscaux selon le régime (nom_propre ou sci)"""
+    try:
+        if type_regime == "nom_propre":
+            create_nom_propre_charts(gs_manager)
+        elif type_regime == "sci":
+            create_sci_charts(gs_manager)
+    except Exception as e:
+        st.error(f"❌ Erreur création graphiques fiscaux : {str(e)}")
+
+def create_nom_propre_charts(gs_manager):
+    """Crée les graphiques pour le régime Nom propre"""
+    try:
+        data = gs_manager.get_fiscalite_data("nom_propre")
+        if not data:
+            st.warning("⚠️ Aucune donnée fiscale Nom propre trouvée")
+            return
         
-        st.markdown("### 📋 Détail des charges")
+        # Couleurs cohérentes
+        colors_sober = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#5D737E', '#64A6BD', '#90A959']
         
-        # Formater les valeurs pour l'affichage
-        df_display = df_charges.copy()
-        df_display['Valeur (€)'] = df_display['valeur'].apply(lambda x: f"{x:,.2f} €")
-        df_display['Libellé'] = df_display['libelle']
+        # 1. Rentabilité brut/net de charges
+        if data.get('rentabilite'):
+            st.subheader("📊 Rentabilité de l'investissement")
+            df_rentabilite = pd.DataFrame(data['rentabilite'])
+            
+            fig_rentabilite = px.bar(
+                df_rentabilite, 
+                x='libelle', 
+                y='valeur',
+                title="Rentabilité brute vs nette de charges",
+                color_discrete_sequence=colors_sober
+            )
+            
+            fig_rentabilite.update_traces(
+                hovertemplate='<b>%{x}</b><br>Rentabilité: %{y:.2f}%<extra></extra>'
+            )
+            
+            fig_rentabilite.update_layout(
+                xaxis_title="Type de rentabilité",
+                yaxis_title="Pourcentage (%)",
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig_rentabilite, use_container_width=True)
         
-        # Calculer le total
-        total_charges = df_charges['valeur'].sum()
+        # 2. Rentabilité nette avec impôts
+        if data.get('rentabilite_nette'):
+            st.subheader("💰 Rentabilité nette (impôts compris)")
+            df_rentabilite_nette = pd.DataFrame(data['rentabilite_nette'])
+            
+            fig_rentabilite_nette = px.bar(
+                df_rentabilite_nette, 
+                x='libelle', 
+                y='valeur',
+                title="Rentabilité nette après imposition",
+                color_discrete_sequence=colors_sober[1:]
+            )
+            
+            fig_rentabilite_nette.update_traces(
+                hovertemplate='<b>%{x}</b><br>Rentabilité: %{y:.2f}%<extra></extra>'
+            )
+            
+            fig_rentabilite_nette.update_layout(
+                xaxis_title="Période/Type",
+                yaxis_title="Pourcentage (%)",
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig_rentabilite_nette, use_container_width=True)
         
-        # Afficher le tableau
-        st.dataframe(
-            df_display[['Libellé', 'Valeur (€)']], 
-            hide_index=True,
-            use_container_width=True
+        # 3. Cash mensuel
+        if data.get('cash_mensuel'):
+            st.subheader("💵 Cash-flow mensuel")
+            df_cash = pd.DataFrame(data['cash_mensuel'])
+            
+            fig_cash = px.bar(
+                df_cash, 
+                x='libelle', 
+                y='valeur',
+                title="Cash-flow mensuel par catégorie",
+                color_discrete_sequence=colors_sober[2:]
+            )
+            
+            fig_cash.update_traces(
+                hovertemplate='<b>%{x}</b><br>Montant: %{y:,.0f} €<extra></extra>'
+            )
+            
+            fig_cash.update_layout(
+                xaxis_title="Catégorie",
+                yaxis_title="Montant (€)",
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig_cash, use_container_width=True)
+            
+    except Exception as e:
+        st.error(f"❌ Erreur graphiques Nom propre : {str(e)}")
+
+def create_sci_charts(gs_manager):
+    """Crée les graphiques pour le régime SCI"""
+    try:
+        data = gs_manager.get_fiscalite_data("sci")
+        if not data:
+            st.warning("⚠️ Aucune donnée fiscale SCI trouvée")
+            return
+        
+        # Cash mensuel par associé
+        if data.get('cash_associes'):
+            st.subheader("👥 Cash mensuel par associé après imposition")
+            
+            df_sci = pd.DataFrame(data['cash_associes'])
+            
+            # Transformer les données pour l'affichage
+            df_melted = pd.melt(
+                df_sci, 
+                id_vars=['associe'], 
+                value_vars=['ir', 'is'],
+                var_name='regime',
+                value_name='cash'
+            )
+            
+            # Renommer les régimes
+            df_melted['regime'] = df_melted['regime'].map({
+                'ir': 'SCI à l\'IR',
+                'is': 'SCI à l\'IS'
+            })
+            
+            fig_sci = px.bar(
+                df_melted, 
+                x='associe', 
+                y='cash',
+                color='regime',
+                title="Cash mensuel par associé selon le régime fiscal",
+                barmode='group',
+                color_discrete_map={
+                    'SCI à l\'IR': '#2E86AB',
+                    'SCI à l\'IS': '#A23B72'
+                }
+            )
+            
+            fig_sci.update_traces(
+                hovertemplate='<b>%{x}</b><br>%{fullData.name}<br>Cash: %{y:,.0f} €<extra></extra>'
+            )
+            
+            fig_sci.update_layout(
+                xaxis_title="Associés",
+                yaxis_title="Cash mensuel (€)",
+                legend_title="Régime fiscal"
+            )
+            
+            st.plotly_chart(fig_sci, use_container_width=True)
+            
+            # Note explicative APRÈS le graphique
+            dividendes_pct = data.get('dividendes_pct', 0)
+            st.info(f"📊 **SCI à l'IS** : cash mensuel calculé sur la base des dividendes distribués à hauteur de : **{dividendes_pct:.1f}%**")
+            
+    except Exception as e:
+        st.error(f"❌ Erreur graphiques SCI : {str(e)}")
+
+def create_plus_value_chart(gs_manager):
+    """Crée le graphique de plus-value selon la durée de détention"""
+    try:
+        st.subheader("📈 Plus-value selon la durée de détention")
+        
+        data = gs_manager.get_plus_value_data()
+        if not data:
+            st.warning("⚠️ Aucune donnée de plus-value trouvée")
+            return
+        
+        df_plus_value = pd.DataFrame(data)
+        
+        if df_plus_value.empty:
+            st.warning("⚠️ Aucune donnée de plus-value valide")
+            return
+        
+        fig_plus_value = go.Figure()
+        
+        # Courbe plus-value après imposition
+        fig_plus_value.add_trace(go.Scatter(
+            x=df_plus_value['duree'],
+            y=df_plus_value['apres_imposition'],
+            mode='lines+markers',
+            name='Après imposition',
+            line=dict(color='#2E86AB', width=3),
+            marker=dict(size=6),
+            hovertemplate='<b>Après imposition</b><br>Durée: %{x} ans<br>Plus-value: %{y:,.0f} €<extra></extra>'
+        ))
+        
+        # Courbe plus-value avant imposition
+        fig_plus_value.add_trace(go.Scatter(
+            x=df_plus_value['duree'],
+            y=df_plus_value['avant_imposition'],
+            mode='lines+markers',
+            name='Avant imposition',
+            line=dict(color='#A23B72', width=3),
+            marker=dict(size=6),
+            hovertemplate='<b>Avant imposition</b><br>Durée: %{x} ans<br>Plus-value: %{y:,.0f} €<extra></extra>'
+        ))
+        
+        fig_plus_value.update_layout(
+            title="Évolution de la plus-value selon la durée de détention",
+            xaxis_title="Durée de détention (années)",
+            yaxis_title="Plus-value (€)",
+            hovermode='x unified'
         )
         
-        # Afficher le total
-        st.markdown(f"**💰 Total des charges annuelles : {total_charges:,.2f} €**")
+        st.plotly_chart(fig_plus_value, use_container_width=True)
         
-        # Métriques supplémentaires
+    except Exception as e:
+        st.error(f"❌ Erreur graphique plus-value : {str(e)}")
+
+def create_amortissement_chart(gs_manager):
+    """Crée le graphique d'amortissement avec encadrés informatifs"""
+    try:
+        st.subheader("🏦 Amortissement du prêt")
+        
+        data = gs_manager.get_amortissement_data()
+        if not data:
+            st.warning("⚠️ Aucune donnée d'amortissement trouvée")
+            return
+        
+        # Encadrés avec les informations clés
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("🔢 Nombre de postes", len(charges_data))
+            st.metric(
+                label="💰 Coût total du crédit",
+                value=f"{data['cout_total']:,.0f} €"
+            )
         
         with col2:
-            charge_moyenne = total_charges / len(charges_data) if charges_data else 0
-            st.metric("📊 Charge moyenne", f"{charge_moyenne:,.0f} €")
+            st.metric(
+                label="📅 Mensualité hors assurance",
+                value=f"{data['mensualite_hors_assurance']:,.0f} €"
+            )
         
         with col3:
-            charge_mensuelle = total_charges / 12
-            st.metric("📅 Charges mensuelles", f"{charge_mensuelle:,.0f} €")
+            st.metric(
+                label="🛡️ Mensualité avec assurance",
+                value=f"{data['mensualite_avec_assurance']:,.0f} €"
+            )
         
-        st.success(f"✅ Camembert créé avec {len(charges_data)} postes de charges")
+        # Graphique d'amortissement
+        if data.get('tableau'):
+            df_amortissement = pd.DataFrame(data['tableau'])
+            
+            if not df_amortissement.empty:
+                # Limiter l'affichage à 60 mois pour la lisibilité
+                df_display = df_amortissement.head(60)
+                
+                fig_amortissement = go.Figure()
+                
+                # Barres empilées : Capital en bas, Intérêts au-dessus
+                fig_amortissement.add_trace(go.Bar(
+                    x=df_display['mois'],
+                    y=df_display['capital'],
+                    name='Capital',
+                    marker_color='#2E86AB',
+                    hovertemplate='<b>%{x}</b><br>Capital: %{y:,.0f} €<extra></extra>'
+                ))
+                
+                fig_amortissement.add_trace(go.Bar(
+                    x=df_display['mois'],
+                    y=df_display['interets'],
+                    name='Intérêts',
+                    marker_color='#A23B72',
+                    hovertemplate='<b>%{x}</b><br>Intérêts: %{y:,.0f} €<extra></extra>'
+                ))
+                
+                fig_amortissement.update_layout(
+                    title="Répartition capital/intérêts par mensualité",
+                    xaxis_title="Mois",
+                    yaxis_title="Montant (€)",
+                    barmode='stack',
+                    hovermode='x unified'
+                )
+                
+                # Masquer les étiquettes de l'axe X si trop nombreuses
+                if len(df_display) > 24:
+                    fig_amortissement.update_xaxes(showticklabels=False)
+                
+                st.plotly_chart(fig_amortissement, use_container_width=True)
+                
+                if len(df_amortissement) > 60:
+                    st.info(f"📊 Affichage limité aux 60 premiers mois (sur {len(df_amortissement)} total)")
         
     except Exception as e:
-        st.error(f"❌ Erreur création graphique : {str(e)}")
-        import traceback
-        st.code(traceback.format_exc())
+        st.error(f"❌ Erreur graphique amortissement : {str(e)}")
 
 def chat_interface():
     """Interface de chat classique orientée immobilier (Streamlit chat)."""
