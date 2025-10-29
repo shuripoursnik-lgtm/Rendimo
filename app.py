@@ -16,6 +16,14 @@ from pathlib import Path
 
 # Excel handling
 from openpyxl import load_workbook
+import pandas as pd
+
+# Graphics for indicators
+import plotly.express as px
+import plotly.graph_objects as go
+
+# Google Sheets
+from utils.google_sheets_manager import GoogleSheetsManager
 
 # Import des modules métier
 from utils.scraper import LeBonCoinScraper
@@ -274,6 +282,14 @@ def detailed_analysis_form():
         key="type_investissement"
     )
     
+    # Configuration SCI hors formulaire pour mise à jour temps réel
+    nombre_associes = 2  # Valeur par défaut
+    if type_investissement == "SCI":
+        st.markdown("**🏢 Configuration SCI**")
+        nombre_associes = st.number_input("Nombre d'associés", 
+                                        min_value=1, max_value=4, value=2, step=1,
+                                        key="nb_associes_sci")
+    
     # Formulaire principal
     with st.form("detailed_analysis"):
         # Section 1: Caractéristiques du bien et financement
@@ -329,8 +345,6 @@ def detailed_analysis_form():
             with col_sci1:
                 capital_sci = st.number_input("Capital de la SCI (€)", 
                                             min_value=0, value=1000, step=100)
-                nombre_associes = st.number_input("Nombre d'associés", 
-                                                min_value=1, max_value=4, value=2, step=1)
             
             # Informations pour chaque associé
             associes = []
@@ -339,9 +353,11 @@ def detailed_analysis_form():
                 col_a1, col_a2, col_a3, col_a4 = st.columns(4)
                 
                 with col_a1:
+                    # Calcul automatique de la répartition égale
+                    part_default = round(100.0 / nombre_associes, 1)
                     part = st.number_input(f"Part détenue (%)", 
                                          min_value=0.0, max_value=100.0, 
-                                         value=50.0 if i == 0 else 50.0, 
+                                         value=part_default, 
                                          step=1.0, key=f"part_{i}")
                 
                 with col_a2:
@@ -383,8 +399,8 @@ def detailed_analysis_form():
         submitted = st.form_submit_button("📁 Générer l'analyse Excel", type="primary")
         
         if submitted:
-            # Créer l'Excel avec les données
-            excel_file = generate_excel_analysis(property_data, {
+            # Créer l'analyse avec Google Sheets
+            excel_file = generate_google_sheets_analysis(property_data, {
                 'type_bien': type_bien,
                 'loyer_hc': loyer_hc,
                 'loyer_cc': loyer_cc,
@@ -399,128 +415,180 @@ def detailed_analysis_form():
             })
             
             if excel_file:
-                st.success("✅ Analyse Excel générée avec succès !")
-                # Stocker le fichier dans session_state pour le téléchargement
-                st.session_state['excel_file'] = excel_file
-                st.session_state['excel_filename'] = f"Rendimo_Analyse_{property_data.get('city', 'Bien')}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-    
-    # Bouton de téléchargement en dehors du formulaire
-    if 'excel_file' in st.session_state and st.session_state['excel_file']:
-        with open(st.session_state['excel_file'], "rb") as file:
-            st.download_button(
-                label="💾 Télécharger l'analyse Excel",
-                data=file.read(),
-                file_name=st.session_state['excel_filename'],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                st.success("✅ Analyse Google Sheets générée avec succès !")
+                # Le téléchargement est maintenant géré dans export_to_excel()
+                # Plus besoin de session_state pour le téléchargement
 
-def generate_excel_analysis(property_data, additional_data):
+def generate_google_sheets_analysis(property_data, additional_data):
     """
-    Génère un fichier Excel personnalisé avec les données du bien immobilier.
+    Génère une analyse avec Google Sheets et crée les indicateurs visuels.
     
     Args:
         property_data (dict): Données du bien (prix, surface, ville, etc.)
         additional_data (dict): Données supplémentaires du formulaire
         
     Returns:
-        str: Chemin vers le fichier Excel généré, ou None en cas d'erreur
-        
-    Mapping des données:
-        - Feuille "Frais de notaire": Prix (I3), Type bien (F3)
-        - Feuille "Coûts et rendement": Loyers, prêt, travaux
-        - Feuille "Nom propre - Fiscalité" ou "SCI": Données fiscales
-        - Feuille "Plus value": Estimation revente (E7)
+        str: Chemin vers le fichier Excel exporté, ou None en cas d'erreur
     """
     try:
-        # Vérification du template
-        template_path = Path("Excel/Rendimmo - Rentabilité.xlsx")
-        if not template_path.exists():
-            st.error("❌ Fichier template Excel non trouvé")
+        # Initialiser le gestionnaire Google Sheets
+        gs_manager = GoogleSheetsManager()
+        
+        # Connexion à Google Sheets
+        if not gs_manager.connect():
             return None
         
-        # Ouverture directe du template et préparation du fichier de sortie
-        workbook = load_workbook(template_path)
-        output_path = Path(f"temp_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+        # Mise à jour des données dans Google Sheets
+        if not gs_manager.update_property_data(property_data, additional_data):
+            return None
         
         # ============================================================================
-        # SECTION 1: FEUILLE "FRAIS DE NOTAIRE"
+        # CRÉATION DES INDICATEURS VISUELS
         # ============================================================================
-        if "Frais de notaire" in workbook.sheetnames:
-            sheet_frais = workbook["Frais de notaire"]
-            sheet_frais["I3"] = property_data.get('price', 0)  # Prix du bien
-            sheet_frais["F3"] = additional_data.get('type_bien', 'Occasion')  # Type bien
         
-        # ============================================================================
-        # SECTION 2: FEUILLE "COÛTS ET RENDEMENT"
-        # ============================================================================
-        sheet_cout = None
-        for sheet_name in workbook.sheetnames:
-            if "rendement" in sheet_name.lower():
-                sheet_cout = workbook[sheet_name]
-                break
+        st.markdown("---")
+        st.markdown("### 📊 Indicateurs basés sur Google Sheets")
         
-        if sheet_cout:
-            # Données locatives
-            sheet_cout["D7"] = additional_data.get('loyer_hc', 0)      # Loyer HC
-            sheet_cout["D8"] = additional_data.get('loyer_cc', 0)      # Loyer CC
-            sheet_cout["D9"] = property_data.get('surface', 0)         # Surface
-            
-            # Données de financement
-            sheet_cout["D14"] = additional_data.get('utilise_pret', 'Oui')     # Prêt
-            sheet_cout["D15"] = additional_data.get('duree_pret', 20)          # Durée
-            sheet_cout["D16"] = additional_data.get('apport', 0)               # Apport
-            sheet_cout["D17"] = additional_data.get('taux_pret', 4.0) / 100    # Taux
-            
-            # Données travaux
-            sheet_cout["D21"] = additional_data.get('cout_renovation', 0)      # Rénovation
-            sheet_cout["D22"] = additional_data.get('cout_construction', 0)    # Construction
+        # Récupérer les données des charges calculées
+        charges_data = gs_manager.get_charges_data()
+        
+        if charges_data:
+            # Créer le camembert des charges
+            create_charges_pie_chart(charges_data)
+        else:
+            st.warning("⚠️ Impossible de récupérer les données des charges")
         
         # ============================================================================
-        # SECTION 3: DONNÉES FISCALES (NOM PROPRE OU SCI)
+        # EXPORT EXCEL POUR TÉLÉCHARGEMENT
         # ============================================================================
-        donnees_fiscales = additional_data.get('donnees_fiscales', {})
         
-        if donnees_fiscales.get('type') == 'nom_propre':
-            # Feuille "Nom propre - Fiscalité"
-            if "Nom propre - Fiscalité" in workbook.sheetnames:
-                sheet_np = workbook["Nom propre - Fiscalité"]
-                sheet_np["D6"] = donnees_fiscales.get('revenu_net', 50000)    # Revenu net
-                sheet_np["D7"] = donnees_fiscales.get('situation', 'Célibataire-divorcé-veuf')  # Situation
-                sheet_np["D8"] = donnees_fiscales.get('nombre_enfants', 0)    # Enfants
+        excel_path = gs_manager.export_to_excel(property_data)
         
-        elif donnees_fiscales.get('type') == 'sci':
-            # Feuille "SCI"
-            if "SCI" in workbook.sheetnames:
-                sheet_sci = workbook["SCI"]
-                sheet_sci["D6"] = donnees_fiscales.get('capital', 1000)  # Capital SCI
-                
-                # Données des associés (maximum 4)
-                associes = donnees_fiscales.get('associes', [])
-                colonnes = ['D', 'E', 'F', 'G']  # Colonnes pour associés 1-4
-                
-                for i, associe in enumerate(associes[:4]):
-                    col = colonnes[i]
-                    sheet_sci[f"{col}8"] = associe.get('part', 50) / 100      # Part (%)
-                    sheet_sci[f"{col}10"] = associe.get('revenu', 50000)       # Revenu
-                    sheet_sci[f"{col}11"] = associe.get('situation', 'Célibataire-divorcé-veuf')  # Situation
-                    sheet_sci[f"{col}12"] = associe.get('enfants', 0)          # Enfants
-        
-        # ============================================================================
-        # SECTION 4: FEUILLE "PLUS VALUE"
-        # ============================================================================
-        if "Plus value" in workbook.sheetnames:
-            sheet_pv = workbook["Plus value"]
-            sheet_pv["E7"] = additional_data.get('estimation_revente', 0)  # Estimation revente
-        
-        # Sauvegarde du fichier Excel
-        workbook.save(output_path)
-        workbook.close()
-        
-        return str(output_path)
+        if excel_path:
+            st.success("✅ Analyse Google Sheets terminée avec succès !")
+            return excel_path
+        else:
+            st.error("❌ Erreur lors de l'export Excel")
+            return None
         
     except Exception as e:
-        st.error(f"❌ Erreur lors de la génération Excel : {str(e)}")
+        st.error(f"❌ Erreur analyse Google Sheets : {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
         return None
+
+def create_charges_pie_chart(charges_data):
+    """
+    Crée le camembert des charges annuelles à partir des données Google Sheets.
+    
+    Args:
+        charges_data (list): Liste des charges avec libellé et valeur
+    """
+    try:
+        # Convertir en DataFrame pandas
+        df_charges = pd.DataFrame(charges_data)
+        
+        if df_charges.empty:
+            st.warning("⚠️ Aucune donnée de charges disponible")
+            return
+        
+        # ============================================================================
+        # CAMEMBERT PROFESSIONNEL
+        # ============================================================================
+        
+        st.subheader("💰 Répartition des charges annuelles")
+        st.caption("*Données calculées en temps réel depuis Google Sheets*")
+        
+        # Couleurs sobres et professionnelles
+        colors_sober = [
+            '#2C3E50', '#34495E', '#5D6D7E', '#85929E', 
+            '#AEB6BF', '#D5DBDB', '#BDC3C7', '#95A5A6',
+            '#7F8C8D', '#566573'
+        ]
+        
+        # Créer le camembert avec Plotly
+        fig_pie = px.pie(
+            df_charges, 
+            values='valeur', 
+            names='libelle',
+            title="Répartition des charges annuelles",
+            color_discrete_sequence=colors_sober
+        )
+        
+        # Personnalisation du graphique avec € dans le hover
+        fig_pie.update_traces(
+            textposition='inside', 
+            textinfo='percent+label',
+            textfont_size=11,
+            marker=dict(line=dict(color='#FFFFFF', width=2)),
+            hovertemplate='<b>%{label}</b><br>' +
+                         'Montant: %{value:,.0f} €<br>' +
+                         'Pourcentage: %{percent}<br>' +
+                         '<extra></extra>'
+        )
+        
+        fig_pie.update_layout(
+            height=550,
+            showlegend=True,
+            title_font_size=18,
+            title_x=0.5,
+            font=dict(size=12),
+            legend=dict(
+                orientation="v",
+                yanchor="middle",
+                y=0.5,
+                xanchor="left",
+                x=1.05
+            )
+        )
+        
+        # Afficher le graphique
+        st.plotly_chart(fig_pie, use_container_width=True)
+        
+        # ============================================================================
+        # TABLEAU DÉTAILLÉ
+        # ============================================================================
+        
+        st.markdown("### 📋 Détail des charges")
+        
+        # Formater les valeurs pour l'affichage
+        df_display = df_charges.copy()
+        df_display['Valeur (€)'] = df_display['valeur'].apply(lambda x: f"{x:,.2f} €")
+        df_display['Libellé'] = df_display['libelle']
+        
+        # Calculer le total
+        total_charges = df_charges['valeur'].sum()
+        
+        # Afficher le tableau
+        st.dataframe(
+            df_display[['Libellé', 'Valeur (€)']], 
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Afficher le total
+        st.markdown(f"**💰 Total des charges annuelles : {total_charges:,.2f} €**")
+        
+        # Métriques supplémentaires
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("🔢 Nombre de postes", len(charges_data))
+        
+        with col2:
+            charge_moyenne = total_charges / len(charges_data) if charges_data else 0
+            st.metric("📊 Charge moyenne", f"{charge_moyenne:,.0f} €")
+        
+        with col3:
+            charge_mensuelle = total_charges / 12
+            st.metric("📅 Charges mensuelles", f"{charge_mensuelle:,.0f} €")
+        
+        st.success(f"✅ Camembert créé avec {len(charges_data)} postes de charges")
+        
+    except Exception as e:
+        st.error(f"❌ Erreur création graphique : {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
 
 def chat_interface():
     """Interface de chat classique orientée immobilier (Streamlit chat)."""

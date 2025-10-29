@@ -60,6 +60,8 @@ tmp/
 # Fichiers Excel générés
 *.xlsx
 *.xls
+temp_analysis_*.xlsx
+~$*.xlsx
 reports/
 output/
 

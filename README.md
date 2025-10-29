@@ -1,14 +1,14 @@
-# Rendimo V1 🏠
+# 🏡 Rendimo - Analyseur d'Investissement Immobilier
 
-Application Streamlit simplifiée pour l'extraction et l'analyse de données immobilières depuis LeBonCoin.
+**Rendimo** est une application Streamlit permettant d'analyser la rentabilité d'investissements immobiliers en France.
 
-## 🎯 Fonctionnalités
+## ✨ Fonctionnalités
 
-- **Extraction automatique** depuis les URLs LeBonCoin
-- **Saisie manuelle** de propriétés immobilières  
-- **Chatbot IA** pour l'analyse des biens (Groq AI)
-- **Interface épurée** avec 2 onglets seulement
-- **Calculs de rentabilité** de base
+- 🔗 **Extraction automatique** des données depuis LeBonCoin
+- 📊 **Comparaison avec les données DVF** (prix au m² local)
+- 🤖 **Chatbot IA** avec conseils personnalisés (Groq)
+- 📈 **Analyse détaillée** avec export Google Sheets formaté
+- 📊 **Indicateurs visuels** (camembert des charges, etc.)
 
 ## 🚀 Installation
 
