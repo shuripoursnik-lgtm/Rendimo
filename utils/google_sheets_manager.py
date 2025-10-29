@@ -196,88 +196,11 @@ class GoogleSheetsManager:
             st.error(f"❌ Erreur connexion Google Sheets : {str(e)}")
             return False
 
-    def create_temporary_copy(self, property_data):
-        """Alternative: Sauvegarde les données du template avant modification"""
-        try:
-            # Au lieu de créer une copie, on sauvegarde les cellules qu'on va modifier
-            # pour pouvoir les restaurer après
-            
-            self.backup_data = {}
-            
-            # Sauvegarder les principales cellules qui seront modifiées
-            sheets_to_backup = [
-                ("Frais de notaire", ["I3", "F3"]),
-                ("Coûts et rendement", ["D7", "D8", "D14", "D15", "D16", "D17"]),
-                ("Plus value", ["E7"]),
-                ("Nom propre - Fiscalité", ["D7", "D8", "D9", "D10", "D11"]),
-                ("SCI", ["D6", "D8", "E8", "F8", "G8", "D9", "E9", "F9", "G9", "D10", "E10", "F10", "G10", "D11", "E11", "F11", "G11"])
-            ]
-            
-            for sheet_name, cells in sheets_to_backup:
-                try:
-                    sheet = self.sheet.worksheet(sheet_name)
-                    self.backup_data[sheet_name] = {}
-                    
-                    for cell in cells:
-                        try:
-                            value = sheet.acell(cell).value
-                            self.backup_data[sheet_name][cell] = value
-                        except:
-                            self.backup_data[sheet_name][cell] = ""
-                            
-                except Exception as e:
-                    st.warning(f"⚠️ Erreur sauvegarde {sheet_name}: {str(e)}")
-            
-            return True
-            
-        except Exception as e:
-            st.error(f"❌ Erreur sauvegarde template : {str(e)}")
-            return False
-    
-    def delete_temporary_copy(self):
-        """Alternative: Restaure les données originales du template"""
-        try:
-            if not self.backup_data:
-                return True
-                
-            # Restaurer toutes les cellules sauvegardées
-            for sheet_name, cells_data in self.backup_data.items():
-                try:
-                    sheet = self.sheet.worksheet(sheet_name)
-                    
-                    for cell, original_value in cells_data.items():
-                        try:
-                            # Restaurer la valeur originale
-                            if original_value is None:
-                                original_value = ""
-                            sheet.update(cell, [[original_value]])
-                        except Exception as e:
-                            st.warning(f"⚠️ Erreur restauration {sheet_name}.{cell}: {str(e)}")
-                            
-                except Exception as e:
-                    st.warning(f"⚠️ Erreur restauration sheet {sheet_name}: {str(e)}")
-            
-            # Vider la sauvegarde
-            self.backup_data = {}
-            return True
-            
-        except Exception as e:
-            st.warning(f"⚠️ Erreur restauration template : {str(e)}")
-            return False
-
-    def schedule_auto_restore(self, delay_seconds=900):  # 15 minutes par défaut
-        """Programme une restauration automatique après délai (par défaut 15 minutes)"""
-        import threading
-        import time
-        
-        def restore_after_delay():
-            time.sleep(delay_seconds)
-            if self.backup_data:  # Seulement si pas encore restauré manuellement
-                self.delete_temporary_copy()
-        
-        # Lancer la restauration automatique en arrière-plan
-        thread = threading.Thread(target=restore_after_delay, daemon=True)
-        thread.start()
+    # Méthodes supprimées pour simplification : 
+    # - create_temporary_copy() 
+    # - delete_temporary_copy()
+    # - schedule_auto_restore()
+    # On modifie directement le template et on télécharge
     
     def _update_nom_propre_sheet(self, donnees_fiscales):
         """Met à jour la feuille Nom propre"""
@@ -285,14 +208,14 @@ class GoogleSheetsManager:
             nom_propre_sheet = self.sheet.worksheet(SHEETS_MAPPING["nom_propre"])
             
             updates = [
-                ('D6', float(donnees_fiscales.get('revenu_foyer', 0))),
-                ('D7', str(donnees_fiscales.get('situation_familiale', 'Célibataire-divorcé-veuf'))),
-                ('D8', float(donnees_fiscales.get('nombre_enfants', 0)))
+                ('D6', float(donnees_fiscales.get('revenu_net', 0))),           # Revenu net global
+                ('D7', str(donnees_fiscales.get('situation', 'Célibataire-divorcé-veuf'))),    # Situation familiale
+                ('D8', float(donnees_fiscales.get('nombre_enfants', 0)))       # Nombre d'enfants
             ]
             
             for cell, value in updates:
                 try:
-                    nom_propre_sheet.update(cell, [[value]])  # Format liste de listes
+                    nom_propre_sheet.update(cell, [[value]])
                 except Exception as e:
                     st.warning(f"⚠️ Erreur mise à jour {cell}: {str(e)}")
                 
@@ -330,6 +253,10 @@ class GoogleSheetsManager:
                         
                         # Situation familiale détaillée (ligne 11) - même que ligne 9
                         sci_sheet.update(f'{col}11', [[situation]])
+                        
+                        # Nombre d'enfants (ligne 12) - spécifique à chaque associé
+                        enfants = float(associe.get('enfants', 0))
+                        sci_sheet.update(f'{col}12', [[enfants]])
                         
                     except Exception as e:
                         st.warning(f"⚠️ Erreur associé {i+1}: {str(e)}")
@@ -600,32 +527,16 @@ class GoogleSheetsManager:
             return None
     
     def export_to_excel(self, property_data):
-        """Génère un lien de téléchargement du Google Sheet avec mise en forme complète"""
+        """Génère un lien de téléchargement du Google Sheet modifié"""
         try:
             st.info("📤 Préparation du téléchargement Google Sheets...")
             
-            # ============================================================================
-            # MÉTHODE : LIEN DE TÉLÉCHARGEMENT DIRECT GOOGLE SHEETS
-            # ============================================================================
-            
             # URL de téléchargement direct Excel de Google Sheets
-            # Cette méthode préserve TOUT le formatage (couleurs, images, formules, etc.)
-            # Utiliser l'ID original (plus de copie temporaire)
             download_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=xlsx"
             
             # Nom du fichier pour le téléchargement
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"Rendimo_Analyse_{property_data.get('city', 'Bien')}_{timestamp}.xlsx"
-            
-            # Note importante pour l'utilisateur
-            st.info("📋 **Note** : Le fichier à télécharger contient vos données. Le template sera automatiquement restauré dans 5 minutes, ou vous pouvez le faire manuellement.")
-            
-            # Programmer une restauration automatique dans 5 minutes
-            self.schedule_auto_restore(900)  # 15 minutes
-            
-            # ============================================================================
-            # BOUTON DE TÉLÉCHARGEMENT STREAMLIT
-            # ============================================================================
             
             st.markdown("---")
             st.markdown("### 📥 **Télécharger votre analyse complète**")

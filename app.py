@@ -423,6 +423,7 @@ def detailed_analysis_form():
 def generate_google_sheets_analysis(property_data, additional_data):
     """
     Génère une analyse avec Google Sheets et crée les indicateurs visuels.
+    Version simplifiée : modification directe du template + téléchargement.
     
     Args:
         property_data (dict): Données du bien (prix, surface, ville, etc.)
@@ -439,12 +440,7 @@ def generate_google_sheets_analysis(property_data, additional_data):
         if not gs_manager.connect():
             return None
         
-        # Créer une copie temporaire du template
-        if not gs_manager.create_temporary_copy(property_data):
-            st.error("❌ Impossible de sauvegarder le template")
-            return None
-        
-        # Mise à jour des données dans Google Sheets
+        # Mise à jour des données dans Google Sheets (directement sur le template)
         if not gs_manager.update_property_data(property_data, additional_data):
             return None
         
@@ -501,20 +497,6 @@ def generate_google_sheets_analysis(property_data, additional_data):
         
         # ============================================================================ 
         # BOUTON DE RESTAURATION MANUELLE (optionnel)
-        # ============================================================================
-        
-        st.markdown("---")
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            st.info("ℹ️ Le template sera automatiquement restauré dans 15 minutes. Vous pouvez aussi le faire maintenant :")
-        
-        with col2:
-            if st.button("🔄 Restaurer maintenant", type="secondary"):
-                if gs_manager.delete_temporary_copy():
-                    st.success("✅ Template restauré !")
-                else:
-                    st.error("❌ Erreur restauration")
         
         if excel_path:
             st.success("✅ Analyse Google Sheets terminée avec succès !")
@@ -525,12 +507,7 @@ def generate_google_sheets_analysis(property_data, additional_data):
         
     except Exception as e:
         st.error(f"❌ Erreur analyse Google Sheets : {str(e)}")
-        
-        # En cas d'erreur, s'assurer de restaurer le template original
-        try:
-            gs_manager.delete_temporary_copy()
-        except:
-            pass
+        return None
         
         import traceback
         st.code(traceback.format_exc())
