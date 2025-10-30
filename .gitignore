@@ -49,6 +49,8 @@ Desktop.ini
 test_data/
 temp/
 tmp/
+test_*.py
+*test*.py
 
 # Images en cache
 *.jpg

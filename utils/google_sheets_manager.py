@@ -1,6 +1,6 @@
 """
 Module de gestion Google Sheets pour Rendimo
-Remplace la gestion Excel par Google Sheets API
+Utilise l'API Drive pour créer des copies temporaires
 """
 
 import gspread
@@ -9,6 +9,7 @@ import time
 import tempfile
 import os
 import requests
+import uuid
 from pathlib import Path
 from datetime import datetime
 from openpyxl import Workbook
@@ -81,7 +82,7 @@ class GoogleSheetsManager:
             return 0.0
         
     def connect(self):
-        """Connexion à Google Sheets avec service account"""
+        """Établit la connexion avec Google Sheets"""
         try:
             st.info("📋 Connexion à Google Sheets...")
             
@@ -89,27 +90,20 @@ class GoogleSheetsManager:
             credentials_path = Path("config/google_sheets_credentials.json")
             
             if not credentials_path.exists():
-                st.error("❌ Fichier de credentials Google Sheets non trouvé")
-                st.info("� Veuillez suivre les instructions dans config/README_Google_Sheets_Setup.md")
+                st.error(f"❌ Fichier de credentials introuvable : {credentials_path}")
                 return False
             
-            # Connexion avec le service account
+            # Connexion Google Sheets
             self.gc = gspread.service_account(filename=str(credentials_path))
+            
+            # Se connecter au template principal
             self.sheet = self.gc.open_by_key(GOOGLE_SHEET_ID)
             
+            st.success("✅ Connexion réussie à Google Sheets")
             return True
             
-        except FileNotFoundError:
-            st.error("❌ Fichier de credentials non trouvé")
-            st.info("💡 Veuillez configurer les credentials Google Sheets (voir config/README_Google_Sheets_Setup.md)")
-            return False
-        except gspread.SpreadsheetNotFound:
-            st.error("❌ Google Sheet non trouvé ou accès refusé")
-            st.info("💡 Vérifiez que le service account a accès au Google Sheet")
-            return False
         except Exception as e:
-            st.error(f"❌ Erreur connexion Google Sheets : {str(e)}")
-            st.info("💡 Vérifiez que le service account a accès au fichier Google Sheets")
+            st.error(f"❌ Erreur de connexion : {str(e)}")
             return False
     
     def update_property_data(self, property_data, additional_data):
@@ -196,11 +190,7 @@ class GoogleSheetsManager:
             st.error(f"❌ Erreur connexion Google Sheets : {str(e)}")
             return False
 
-    # Méthodes supprimées pour simplification : 
-    # - create_temporary_copy() 
-    # - delete_temporary_copy()
-    # - schedule_auto_restore()
-    # On modifie directement le template et on télécharge
+    # Méthodes de base pour Google Sheets
     
     def _update_nom_propre_sheet(self, donnees_fiscales):
         """Met à jour la feuille Nom propre"""
@@ -527,11 +517,11 @@ class GoogleSheetsManager:
             return None
     
     def export_to_excel(self, property_data):
-        """Génère un lien de téléchargement du Google Sheet modifié"""
+        """Génère un lien de téléchargement du template Google Sheets"""
         try:
-            st.info("📤 Préparation du téléchargement Google Sheets...")
+            st.info("📤 Préparation du téléchargement...")
             
-            # URL de téléchargement direct Excel de Google Sheets
+            # Utiliser le template principal
             download_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/export?format=xlsx"
             
             # Nom du fichier pour le téléchargement
@@ -542,11 +532,12 @@ class GoogleSheetsManager:
             st.markdown("### 📥 **Télécharger votre analyse complète**")
             
             st.markdown(f"""
-            🎯 **Votre Google Sheet personnalisé est prêt !**
+            🎯 **Votre analyse Google Sheets est prête !**
             
-            ✅ **Formatage complet** : Couleurs, bordures, images  
-            ✅ **Formules calculées** : Tous les résultats financiers  
-            ✅ **Données à jour** : Basées sur votre formulaire  
+            ✅ **Template modifié** : Avec vos données personnalisées  
+            ✅ **Formatage complet** : Couleurs, bordures, formules  
+            ✅ **Calculs à jour** : Tous les résultats financiers  
+            ✅ **Données intégrées** : Basées sur votre formulaire  
             
             👇 **Cliquez sur le bouton ci-dessous pour télécharger :**
             """)
@@ -602,6 +593,9 @@ class GoogleSheetsManager:
                 
                 **💡 Note :** Le téléchargement s'effectue directement depuis Google Sheets, 
                 garantissant que vous obtenez exactement la même mise en forme que votre template !
+                
+                **⚠️ Important :** Le fichier téléchargé contient les dernières données modifiées.
+                Tous les utilisateurs voient les mêmes données car ils utilisent le même template.
                 """)
             
             # Retourner l'URL pour d'autres usages si nécessaire

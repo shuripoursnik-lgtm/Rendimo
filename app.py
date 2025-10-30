@@ -23,8 +23,9 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Google Sheets
+# Google Sheets et Excel
 from utils.google_sheets_manager import GoogleSheetsManager
+from utils.excel_manager import generate_excel_analysis
 
 # Import des modules métier
 from utils.scraper import LeBonCoinScraper
@@ -398,10 +399,13 @@ def detailed_analysis_form():
                                            min_value=0, value=estimation_revente_default, step=5000)
         
         submitted = st.form_submit_button("📁 Générer l'analyse Excel", type="primary")
-        
-        if submitted:
-            # Créer l'analyse avec Google Sheets
-            excel_file = generate_google_sheets_analysis(property_data, {
+    
+    # HORS du formulaire - Traitement et téléchargement
+    if submitted:
+        # Sauvegarder les données dans la session pour traitement hors formulaire
+        st.session_state['excel_generation_data'] = {
+            'property_data': property_data,
+            'additional_data': {
                 'type_bien': type_bien,
                 'loyer_hc': loyer_hc,
                 'loyer_cc': loyer_cc,
@@ -413,12 +417,25 @@ def detailed_analysis_form():
                 'cout_construction': cout_construction,
                 'donnees_fiscales': donnees_fiscales,
                 'estimation_revente': estimation_revente
-            })
+            }
+        }
+        st.session_state['generate_excel'] = True
+    
+    # Traitement HORS formulaire
+    if st.session_state.get('generate_excel', False):
+        generation_data = st.session_state.get('excel_generation_data')
+        if generation_data:
+            # Créer l'analyse avec Google Sheets + Excel
+            excel_file = generate_google_sheets_analysis(
+                generation_data['property_data'], 
+                generation_data['additional_data']
+            )
             
             if excel_file:
-                st.success("✅ Analyse Google Sheets générée avec succès !")
-                # Le téléchargement est maintenant géré dans export_to_excel()
-                # Plus besoin de session_state pour le téléchargement
+                st.success("✅ Analyse générée avec succès !")
+            
+            # Réinitialiser le flag pour éviter la génération en boucle
+            st.session_state['generate_excel'] = False
 
 def generate_google_sheets_analysis(property_data, additional_data):
     """
@@ -440,7 +457,7 @@ def generate_google_sheets_analysis(property_data, additional_data):
         if not gs_manager.connect():
             return None
         
-        # Mise à jour des données dans Google Sheets (directement sur le template)
+        # Mise à jour des données dans le template principal
         if not gs_manager.update_property_data(property_data, additional_data):
             return None
         
@@ -489,28 +506,53 @@ def generate_google_sheets_analysis(property_data, additional_data):
         create_amortissement_chart(gs_manager)
         
         # ============================================================================
-        # EXPORT EXCEL POUR TÉLÉCHARGEMENT
+        # EXPORT EXCEL POUR TÉLÉCHARGEMENT (OpenPyXL - Local) - HORS FORMULAIRE
         # ============================================================================
         
         st.markdown("---")
-        excel_path = gs_manager.export_to_excel(property_data)
+        st.markdown("### 📥 Téléchargement Excel")
+        
+        # Générer l'analyse Excel locale
+        excel_manager = generate_excel_analysis(property_data, additional_data)
+        
+        if excel_manager:
+            # Créer le bouton de téléchargement HORS du contexte de formulaire
+            excel_manager.create_download_button(property_data)
+        else:
+            st.error("❌ Erreur génération fichier Excel")
         
         # ============================================================================ 
-        # BOUTON DE RESTAURATION MANUELLE (optionnel)
+        # INFORMATIONS COMPLÉMENTAIRES
+        # ============================================================================
         
-        if excel_path:
-            st.success("✅ Analyse Google Sheets terminée avec succès !")
-            return excel_path
-        else:
-            st.error("❌ Erreur lors de l'export Excel")
-            return None
+        st.markdown("---")
+        with st.expander("ℹ️ À propos de cette analyse"):
+            st.markdown("""
+            **🔄 Double approche :**
+            - **Indicateurs temps réel** : Calculés via Google Sheets API
+            - **Téléchargement Excel** : Copie locale modifiée avec OpenPyXL
+            
+            **✅ Avantages :**
+            - **Fiabilité** : Pas de problème de quota Google Drive
+            - **Performance** : Traitement local rapide
+            - **Compatibilité** : Excel natif avec toutes les formules
+            - **Autonomie** : Fonctionne hors ligne après téléchargement
+            
+            **🔄 Données synchronisées :**
+            Les indicateurs affichés et le fichier Excel contiennent exactement les mêmes données.
+            """)
+        
+        return True
         
     except Exception as e:
         st.error(f"❌ Erreur analyse Google Sheets : {str(e)}")
-        return None
         
-        import traceback
-        st.code(traceback.format_exc())
+        # En cas d'erreur, s'assurer de supprimer la copie temporaire
+        try:
+            gs_manager.delete_temporary_copy()
+        except:
+            pass
+            
         return None
 
 def create_charges_pie_chart(charges_data):
