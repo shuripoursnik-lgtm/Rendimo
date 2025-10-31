@@ -52,16 +52,14 @@ tmp/
 test_*.py
 *test*.py
 
-# Images en cache
-*.jpg
-*.jpeg
-*.png
-*.gif
-*.webp
+# Images en cache (MAIS PAS le logo)
+*.cache.jpg
+*.cache.jpeg
+*.cache.png
+*.cache.gif
+*.cache.webp
 
-# Fichiers Excel générés
-*.xlsx
-*.xls
+# Fichiers Excel générés (MAIS PAS la template)
 temp_analysis_*.xlsx
 ~$*.xlsx
 reports/
@@ -89,6 +87,7 @@ dmypy.json
 # Price cache
 .cache_prices/
 
-# Fichiers DVF bruts (trop volumineux)
+# Fichiers DVF bruts volumineux (MAIS PAS les .sqlite)
 data/valeursfoncieres-*.txt
-data/*_dvf_*.txt
+data/*_dvf_*.csv
+# NOTE: les fichiers .sqlite sont gardés car nécessaires
