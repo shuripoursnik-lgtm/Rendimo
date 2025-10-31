@@ -1,10 +1,10 @@
 """
 Rendimo - Assistant IA Immobilier
-Application Streamlit pour l'analyse d'investissements immobiliers avec export Excel
+Application Streamlit pour l'analyse d'investissements immobiliers
 
-Version: 2.0 - Analyse détaillée avec export Excel
+Version: 3.0 - Interface redesignée avec analyse Excel locale
 Auteur: Assistant IA
-Date: Octobre 2024
+Date: Octobre 2025
 """
 
 import streamlit as st
@@ -37,30 +37,172 @@ from api.price_api_dvf import DVFPriceAPI
 st.set_page_config(
     page_title="Rendimo - Assistant IA Immobilier",
     page_icon="🏠",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# CSS simplifié
+# CSS personnalisé avec la charte graphique Rendimo
 st.markdown("""
 <style>
+    /* Import de Century Gothic */
+    @import url('https://fonts.googleapis.com/css2?family=Century+Gothic:wght@400;700&display=swap');
+    
+    /* Variables CSS */
+    :root {
+        --rendimo-blue: #213a56;
+        --rendimo-gold: #deb35b;
+        --text-white: #ffffff;
+    }
+    
+    /* Police globale */
+    html, body, [class*="css"] {
+        font-family: 'Century Gothic', 'Trebuchet MS', sans-serif !important;
+    }
+    
+    /* Masquer les éléments Streamlit par défaut */
+    .stDeployButton {display:none;}
+    footer {visibility: hidden;}
+    .stMainBlockContainer {padding-top: 1rem;}
+    
+    /* Fond principal */
+    .stApp {
+        background: linear-gradient(135deg, var(--rendimo-blue) 0%, #2c4f7a 100%);
+        color: var(--text-white);
+    }
+    
+    /* Logo et titre principal */
     .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
         text-align: center;
+        padding: 2rem 0;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 15px;
         margin-bottom: 2rem;
+        backdrop-filter: blur(10px);
     }
+    
+    .main-title {
+        font-size: 3rem;
+        font-weight: 700;
+        color: var(--rendimo-gold);
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        margin-bottom: 0.5rem;
+        background: linear-gradient(45deg, var(--rendimo-gold), #f4d03f);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    
+    .main-subtitle {
+        font-size: 1.2rem;
+        color: var(--text-white);
+        opacity: 0.9;
+        max-width: 600px;
+        margin: 0 auto;
+        line-height: 1.6;
+    }
+    
+    /* Cartes des onglets */
+    .tab-card {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 15px;
+        padding: 1.5rem;
+        margin: 0.5rem 0 1rem 0;
+        border: 1px solid rgba(222, 179, 91, 0.3);
+        backdrop-filter: blur(10px);
+    }
+    
+    .tab-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--rendimo-gold);
+        margin-bottom: 0.5rem;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+    }
+    
+    .tab-description {
+        color: var(--text-white);
+        opacity: 0.8;
+        font-size: 1rem;
+        line-height: 1.5;
+    }
+    
+    /* Boutons personnalisés */
+    .stButton > button {
+        background: linear-gradient(45deg, var(--rendimo-gold), #f4d03f);
+        color: var(--rendimo-blue);
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        font-family: 'Century Gothic', sans-serif;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(222, 179, 91, 0.3);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(222, 179, 91, 0.4);
+    }
+    
+    /* Métriques et indicateurs */
+    .metric-container {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 1rem;
+        border-left: 4px solid var(--rendimo-gold);
+    }
+    
+    /* Messages d'information */
+    .stAlert {
+        background-color: rgba(222, 179, 91, 0.1);
+        border: 1px solid var(--rendimo-gold);
+        color: var(--text-white);
+    }
+    
+    /* Champs de saisie */
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input,
+    .stSelectbox > div > div > select {
+        background-color: rgba(255, 255, 255, 0.1);
+        color: var(--text-white);
+        border: 1px solid rgba(222, 179, 91, 0.5);
+        border-radius: 8px;
+    }
+    
+    /* Titres de sections */
+    .section-title {
+        color: var(--rendimo-gold);
+        font-weight: 700;
+        font-size: 1.3rem;
+        margin: 1.5rem 0 1rem 0;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+    }
+    
+    /* Chat messages */
     .chat-message {
-        padding: 0.5rem;
+        padding: 1rem;
         margin: 0.5rem 0;
-        border-radius: 5px;
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
     }
+    
     .user-message {
-        background-color: #e3f2fd;
-        border-left: 3px solid #2196f3;
+        background: rgba(222, 179, 91, 0.2);
+        border-left: 3px solid var(--rendimo-gold);
     }
+    
     .assistant-message {
-        background-color: #f1f8e9;
-        border-left: 3px solid #4caf50;
+        background: rgba(255, 255, 255, 0.1);
+        border-left: 3px solid var(--text-white);
+    }
+    
+    /* Sidebar */
+    .css-1d391kg {
+        background-color: var(--rendimo-blue);
+    }
+    
+    /* Graphiques */
+    .js-plotly-plot {
+        background: transparent !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -72,208 +214,400 @@ if 'property_data' not in st.session_state:
     st.session_state.property_data = None
 
 def main():
-    """
-    Fonction principale de l'application Rendimo.
+    """Interface principale avec page d'accueil et navigation par onglets"""
     
-    Structure:
-    - Interface à 3 onglets pour analyse de biens immobiliers
-    - Chat bot IA pour conseils personnalisés
-    - Export Excel avec données fiscales détaillées
-    """
+    # Initialisation du state si nécessaire
+    if 'current_tab' not in st.session_state:
+        st.session_state.current_tab = "home"
     
-    # ============================================================================
-    # EN-TÊTE APPLICATION
-    # ============================================================================
-    st.markdown('<h1 class="main-header">🏠 Rendimo - Assistant IA Immobilier</h1>', unsafe_allow_html=True)
+    # Affichage de la page selon l'onglet sélectionné
+    if st.session_state.current_tab == "home":
+        show_welcome_page()
+    elif st.session_state.current_tab == "ai_chat":
+        show_ai_chat()
+    elif st.session_state.current_tab == "simple_analysis":
+        show_simple_analysis()
+    elif st.session_state.current_tab == "detailed_analysis":
+        show_detailed_analysis()
+
+def show_welcome_page():
+    """Page d'accueil avec logo et navigation principale"""
     
-    # Layout principal avec deux colonnes
-    col1, col2 = st.columns([1, 1])
+    # En-tête principal avec logo
+    st.markdown('<div class="main-header">', unsafe_allow_html=True)
     
-    # ============================================================================
-    # COLONNE 1: ANALYSE DE BIEN
-    # ============================================================================
+    # Logo à gauche + titre
+    col1, col2 = st.columns([1, 4])
     with col1:
-        st.header("🔍 Analyse de bien")
-        
-        # Interface à 3 onglets
-        tab1, tab2, tab3 = st.tabs(["🔗 URL LeBonCoin", "📝 Saisie manuelle", "📊 Analyse détaillée"])
-        
-        # TAB 1: Scraping LeBonCoin avec disclaimer
-        with tab1:
-            st.write("**Analyser une annonce LeBonCoin :**")
-            
-            # Disclaimer d'usage responsable
-            st.info("""
-            ⚠️ **Utilisation responsable**
-            - Usage limité à 1-2 annonces par jour par utilisateur
-            - Données à usage personnel d'analyse uniquement
-            - Respect des conditions d'utilisation de LeBonCoin
-            - Aucune donnée personnelle du vendeur n'est collectée
-            """)
-            
-            url_input = st.text_input(
-                "URL de l'annonce :",
-                placeholder="https://www.leboncoin.fr/ventes_immobilieres/...",
-                help="Copiez l'URL complète de l'annonce"
-            )
-            
-            col_btn1, col_btn2 = st.columns([1, 1])
-            
-            with col_btn1:
-                if st.button("Analyser l'annonce", type="primary"):
-                    if url_input.strip():
-                        analyze_property_from_url(url_input.strip())
-                    else:
-                        st.error("Veuillez entrer une URL valide")
-            
-            with col_btn2:
-                if st.button("📋 Guide Inspecteur"):
-                    show_inspector_guide()
-        
-        with tab2:
-            st.write("**Saisie manuelle des données :**")
-            manual_input_form()
-        
-        with tab3:
-            st.write("**Analyse détaillée avec export Excel :**")
-            detailed_analysis_form()
-        
-        st.divider()
-        
-    # Chat interface
-    st.header("💬 Assistant IA")
-    chat_interface()
+        try:
+            logo_path = Path(__file__).parent / "Logo" / "Rendimo.jpg"
+            if logo_path.exists():
+                st.image(str(logo_path), width=120)
+        except Exception as e:
+            st.warning(f"Logo non trouvé : {e}")
     
     with col2:
-        # Section Résultats avec estimation intégrée
-        st.header("📊 Analyse & Estimation")
-        results_interface()
-
-def analyze_property_from_url(url):
-    """Analyse une propriété à partir de son URL LeBonCoin"""
-    try:
-        with st.spinner("🔍 Extraction des données de l'annonce..."):
-            scraper = LeBonCoinScraper()
-            property_data = scraper.extract_property_data(url)
-            
-            if property_data and (property_data.get('title') or property_data.get('price')):
-                st.session_state.property_data = property_data
-                
-                # Message de succès
-                success_msg = f"""✅ **Données extraites avec succès !**
-
-**Bien analysé :**
-- 📍 **Ville :** {property_data.get('city', 'Non spécifiée')}
-- 💰 **Prix :** {property_data.get('price', 0):,}€
-- 📐 **Surface :** {property_data.get('surface', 0)} m²
-- 🏠 **Type :** {property_data.get('property_type', 'Non spécifié')}
-- 🛏️ **Pièces :** {property_data.get('rooms', 'Non spécifié')}
-
-Les calculs d'estimation apparaissent dans la colonne de droite ! 👉"""
-                
-                add_chat_message("assistant", success_msg)
-                st.success("✅ Extraction réussie ! Voir les résultats à droite.")
-                
-            else:
-                st.error("❌ Impossible d'extraire les données")
-                add_chat_message("assistant", """❌ **Extraction échouée**
-
-💡 **Solutions :**
-1. Utilisez l'onglet "Saisie manuelle"  
-2. Consultez le "Guide Inspecteur" pour extraire manuellement
-3. Vérifiez que l'annonce existe encore
-
-N'hésitez pas à me poser vos questions directement ! 😊""")
+        # Titre et sous-titre
+        st.markdown('<h1 class="main-title">Rendimo</h1>', unsafe_allow_html=True)
+        st.markdown('<p class="main-subtitle">Votre assistant IA pour l\'analyse d\'investissements immobiliers<br>Analyses précises • Rapports Excel • Intelligence artificielle</p>', unsafe_allow_html=True)
     
-    except Exception as e:
-        st.error(f"❌ Erreur : {str(e)}")
-
-def manual_input_form():
-    """Formulaire de saisie manuelle"""
-    with st.form("manual_form"):
-        col_a, col_b = st.columns(2)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Cartes de navigation
+    st.markdown("### 🚀 Choisissez votre mode d'analyse")
+    
+    # Ligne 1 : AI Chat et Analyse Simplifiée
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        <div class="tab-card">
+            <h3 class="tab-title">💬 Intelligence Artificielle</h3>
+            <p class="tab-description">
+                Posez vos questions à notre assistant IA spécialisé en immobilier.
+                Conseils personnalisés, stratégies d'investissement et analyses de marché.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with col_a:
-            property_type = st.selectbox("Type", ["Appartement", "Maison", "Studio", "Autre"])
-            price = st.number_input("Prix (€)", min_value=0, value=0, step=1000)
-            surface = st.number_input("Surface (m²)", min_value=0, value=0, step=1)
-            
-        with col_b:
-            city = st.text_input("Ville", placeholder="ex: Surgères")
-            rooms = st.number_input("Pièces", min_value=0, value=0, step=1)
-            postal_code = st.text_input("Code postal", placeholder="ex: 17700")
+        if st.button("🤖 Discutez avec notre IA", key="btn_ai_chat", use_container_width=True):
+            st.session_state.current_tab = "ai_chat"
+            st.rerun()
+    
+    with col2:
+        st.markdown("""
+        <div class="tab-card">
+            <h3 class="tab-title">⚡ Analyse Rapide</h3>
+            <p class="tab-description">
+                Extraction automatique depuis LeBonCoin avec analyse immédiate.
+                Parfait pour un premier aperçu de la rentabilité d'un bien.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        if st.form_submit_button("Analyser ce bien", type="primary"):
-            if price > 0 and surface > 0 and city:
-                manual_data = {
-                    'title': f"{property_type} {surface}m² - {city}",
-                    'price': price,
-                    'surface': surface,
-                    'rooms': rooms,
-                    'city': city,
-                    'postal_code': postal_code,
-                    'property_type': property_type,
-                    'source_url': 'SAISIE_MANUELLE',
-                    'extraction_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
-                st.session_state.property_data = manual_data
-                add_chat_message("assistant", f"✅ **Bien ajouté :** {property_type} {surface}m² à {city} pour {price:,}€")
-                st.success("✅ Bien ajouté ! Voir l'analyse à droite.")
-            else:
-                st.error("❌ Veuillez remplir tous les champs obligatoires")
+        if st.button("� Analyse Simplifiée", key="btn_simple", use_container_width=True):
+            st.session_state.current_tab = "simple_analysis"
+            st.rerun()
+    
+    # Ligne 2 : Analyse Détaillée (centrée)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        <div class="tab-card">
+            <h3 class="tab-title">🎯 Analyse Complète</h3>
+            <p class="tab-description">
+                Formulaire complet avec tous les paramètres d'investissement.
+                Génération de rapport Excel professionnel avec graphiques et projections.
+                Idéal pour une étude approfondie avant achat.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("📈 Analyse Détaillée", key="btn_detailed", use_container_width=True):
+            st.session_state.current_tab = "detailed_analysis"
+            st.rerun()
+    
+    # Pied de page avec informations
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        **✨ Fonctionnalités**
+        - Scraping automatique LeBonCoin
+        - Comparaison prix DVF
+        - Calculs de rentabilité
+        - Rapports Excel
+        """)
+    
+    with col2:
+        st.markdown("""
+        **🔧 Outils Intégrés**
+        - Intelligence artificielle
+        - Base de données DVF
+        - Graphiques interactifs
+        - Projections financières
+        """)
+    
+    with col3:
+        st.markdown("""
+        **📋 Analyse Complète**
+        - Rendement locatif
+        - Cash-flow prévisionnel
+        - Plus-value potentielle
+        - Ratios d'investissement
+        """)
 
-def show_inspector_guide():
-    """Affiche le guide d'utilisation de l'inspecteur"""
-    st.info("""**🔍 Guide d'extraction manuelle :**
+def show_ai_chat():
+    """Page de chat avec l'IA"""
+    
+    # Marge en haut pour le bouton retour
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Header avec retour accueil
+    col1, col2 = st.columns([1, 6])
+    with col1:
+        if st.button("🏠 Accueil", key="home_from_ai"):
+            st.session_state.current_tab = "home"
+            st.rerun()
+    
+    with col2:
+        st.markdown('<h2 class="section-title">🤖 Assistant IA Immobilier</h2>', unsafe_allow_html=True)
+    
+    st.markdown("Posez toutes vos questions sur l'investissement immobilier à notre assistant spécialisé.")
+    
+    # Bouton pour effacer la conversation
+    if st.button("🗑️ Effacer la conversation", key="clear_chat"):
+        st.session_state.chat_messages = [
+            {"role": "assistant", "content": "Conversation effacée ! Quelle est votre nouvelle question ?", "timestamp": datetime.now().isoformat()}
+        ]
+        st.rerun()
+    
+    # Initialisation de l'assistant IA
+    if 'assistant' not in st.session_state:
+        st.session_state.assistant = AIAssistant()
+    assistant = st.session_state.assistant
+    
+    # Bandeau d'état du backend IA
+    if getattr(assistant, 'groq_client', None):
+        backend = f"Groq · Modèle: {getattr(assistant, 'groq_model', 'n/a')} · Température: {getattr(assistant, 'generation_temperature', 'n/a')}"
+        st.caption(f"🤖 Connexion IA: {backend}")
+    elif getattr(assistant, 'openai_client', None):
+        backend = f"OpenAI · Modèle: {getattr(assistant, 'openai_model', 'n/a')} · Température: {getattr(assistant, 'generation_temperature', 'n/a')}"
+        st.caption(f"🤖 Connexion IA: {backend}")
+    else:
+        st.caption("🤖 Connexion IA: mode local (fallback)")
+    
+    # Initialisation du chat avec message de bienvenue
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = [
+            {"role": "assistant", "content": "Bonjour ! Je suis votre assistant IA spécialisé en immobilier. Je peux vous aider avec :\n\n• Conseils d'investissement\n• Analyse de marché\n• Stratégies de financement\n• Fiscalité immobilière (SCI, LMNP, LMP...)\n• Gestion locative\n• Questions spécifiques sur vos biens\n\nQuelle est votre question ?", "timestamp": datetime.now().isoformat()}
+        ]
+    
+    # Affichage des messages avec le style chat Streamlit
+    for message in st.session_state.chat_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    
+    # Zone de saisie en bas style chat
+    prompt = st.chat_input("Posez votre question (ex: Qu'est-ce qu'une SCI ? Différence LMNP vs LMP ?)")
+    
+    if prompt:
+        # Afficher et stocker la requête utilisateur
+        st.session_state.chat_messages.append({
+            'role': 'user',
+            'content': prompt,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        # Obtenir la réponse de l'assistant avec contexte
+        with st.chat_message("assistant"):
+            with st.spinner("Rédaction de la réponse…"):
+                # Utiliser get_response avec le contexte complet
+                property_data = st.session_state.get('extracted_data', None)
+                reply = assistant.get_response(
+                    prompt,
+                    st.session_state.chat_messages,
+                    property_data
+                )
+                st.markdown(reply)
+        
+        # Stocker la réponse
+        st.session_state.chat_messages.append({
+            'role': 'assistant',
+            'content': reply,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        # Pas de st.rerun ici, l'interface chat gère automatiquement
+
+def show_simple_analysis():
+    """Page d'analyse simplifiée avec extraction LeBonCoin"""
+    
+    # Marge en haut pour le bouton retour
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Header avec retour accueil
+    col1, col2 = st.columns([1, 6])
+    with col1:
+        if st.button("🏠 Accueil", key="home_from_simple"):
+            st.session_state.current_tab = "home"
+            st.rerun()
+    
+    with col2:
+        st.markdown('<h2 class="section-title">📊 Analyse Simplifiée</h2>', unsafe_allow_html=True)
+    
+    st.markdown("Collez un lien LeBonCoin pour une analyse rapide, ou saisissez manuellement les données.")
+    
+    # Onglets pour URL ou saisie manuelle
+    tab1, tab2 = st.tabs(["🔗 URL LeBonCoin", "✏️ Saisie manuelle"])
+    
+    with tab1:
+        # Zone de saisie URL
+        url = st.text_input("🔗 URL de l'annonce LeBonCoin :", 
+                           placeholder="https://www.leboncoin.fr/ventes_immobilieres/...",
+                           help="Collez le lien de l'annonce immobilière à analyser")
+        
+        if st.button("🚀 Analyser cette annonce", disabled=not url.strip()):
+            if url.strip():
+                with st.spinner("🔄 Extraction des données en cours..."):
+                    try:
+                        # Scraping
+                        scraper = LeBonCoinScraper()
+                        property_data = scraper.extract_property_data(url)
+                        
+                        if property_data:
+                            # Stockage dans la session pour utilisation dans l'analyse détaillée
+                            st.session_state.extracted_data = property_data
+                            
+                            # Affichage des données extraites
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.markdown('<h3 class="section-title">🏠 Informations du bien</h3>', unsafe_allow_html=True)
+                                st.metric("Prix de vente", f"{property_data.get('price', 'N/A'):,} €")
+                                st.metric("Surface", f"{property_data.get('surface', 'N/A')} m²")
+                                st.metric("Localisation", property_data.get('city', property_data.get('location', 'N/A')))
+                                
+                                if property_data.get('rooms'):
+                                    st.metric("Nombre de pièces", property_data.get('rooms'))
+                            
+                            with col2:
+                                # Analyse DVF si possible
+                                location = property_data.get('city', property_data.get('location', ''))
+                                if location:
+                                    try:
+                                        # Préparer les données pour l'API DVF
+                                        surface = property_data.get('surface', 0)
+                                        price = property_data.get('price', 0)
+                                        
+                                        # Mapping type LeBonCoin → DVF
+                                        raw_type = (property_data.get('property_type', '') or '').lower()
+                                        if 'maison' in raw_type or 'villa' in raw_type:
+                                            api_type = 'house'
+                                        elif 'appartement' in raw_type or 'studio' in raw_type or 'duplex' in raw_type:
+                                            api_type = 'apartment'
+                                        else:
+                                            api_type = 'apartment'  # Fallback
+                                        
+                                        dvf_api = DVFPriceAPI(use_lite=False)  # Base complète
+                                        market_data = dvf_api.get_price_estimate(
+                                            city=location,
+                                            postal_code=property_data.get('postal_code', None),
+                                            property_type=api_type
+                                        )
+                                        
+                                        if not market_data.get('error'):
+                                            st.markdown('<h3 class="section-title">📈 Comparaison marché DVF</h3>', unsafe_allow_html=True)
+                                            
+                                            # Métriques marché
+                                            col_m1, col_m2 = st.columns(2)
+                                            with col_m1:
+                                                st.metric("Prix moyen m²", f"{market_data.get('price_per_sqm', 0):,.0f} €/m²")
+                                                reliability = market_data.get('reliability_score', 0)
+                                                transaction_count = market_data.get('transaction_count', 0)
+                                                
+                                                if reliability >= 85:
+                                                    icon = "🟢"
+                                                elif reliability >= 70:
+                                                    icon = "🟡"
+                                                else:
+                                                    icon = "🟠"
+                                                st.metric("Fiabilité", f"{icon} {reliability}% ({transaction_count} trans.)")
+                                            
+                                            with col_m2:
+                                                # Comparaison du bien vs marché
+                                                if surface > 0 and price > 0:
+                                                    property_price_per_sqm = price / surface
+                                                    market_price_per_sqm = market_data.get('price_per_sqm', 0)
+                                                    
+                                                    if market_price_per_sqm > 0:
+                                                        diff_pct = ((property_price_per_sqm - market_price_per_sqm) / market_price_per_sqm) * 100
+                                                        st.metric("Prix bien €/m²", f"{property_price_per_sqm:,.0f} €/m²")
+                                                        
+                                                        if diff_pct > 10:
+                                                            evaluation = "🔴 Cher"
+                                                        elif diff_pct > -5:
+                                                            evaluation = "🟡 Correct"
+                                                        else:
+                                                            evaluation = "🟢 Bon prix"
+                                                        
+                                                        st.metric("Écart vs marché", f"{diff_pct:+.1f}%", delta=evaluation)
+                                            
+                                            # Calcul de rentabilité estimée
+                                            if surface > 0 and price > 0:
+                                                # Estimation loyer basée sur 15€/m² par défaut ou données DVF
+                                                estimated_rent_per_sqm = 15  # Estimation conservative
+                                                estimated_monthly_rent = surface * estimated_rent_per_sqm
+                                                annual_rent = estimated_monthly_rent * 12
+                                                
+                                                gross_yield = (annual_rent / price) * 100
+                                                
+                                                st.markdown("---")
+                                                st.markdown('<h4 class="section-title">💰 Rentabilité estimée</h4>', unsafe_allow_html=True)
+                                                
+                                                col_r1, col_r2 = st.columns(2)
+                                                with col_r1:
+                                                    st.metric("Loyer estimé", f"{estimated_monthly_rent:,.0f} €/mois")
+                                                with col_r2:
+                                                    if gross_yield >= 7:
+                                                        yield_icon = "🟢"
+                                                    elif gross_yield >= 5:
+                                                        yield_icon = "🟡"
+                                                    else:
+                                                        yield_icon = "🔴"
+                                                    st.metric("Rendement brut", f"{yield_icon} {gross_yield:.1f}%")
+                                        
+                                        else:
+                                            st.warning("ℹ️ Données DVF non disponibles pour cette localisation")
+                                    
+                                    except Exception as e:
+                                        st.warning(f"Erreur DVF : {str(e)}")
+                                else:
+                                    st.info("📍 Localisation nécessaire pour l'analyse DVF")
+                            
+                            # Bouton pour passer à l'analyse détaillée
+                            st.markdown("---")
+                            if st.button("📈 Passer à l'analyse détaillée", key="to_detailed"):
+                                # Pré-remplir les données dans la session
+                                st.session_state.update({
+                                    'property_price': property_data.get('price', 0),
+                                    'property_surface': property_data.get('surface', 0),
+                                    'property_location': property_data.get('city', property_data.get('location', '')),
+                                    'property_rooms': property_data.get('rooms', 0),
+                                    'current_tab': 'detailed_analysis'
+                                })
+                                st.rerun()
+                        
+                        else:
+                            st.error("❌ Impossible d'extraire les données de cette annonce. Vérifiez l'URL.")
                     
-1. **Ouvrir l'annonce** dans votre navigateur
-2. **F12** pour ouvrir l'inspecteur  
-3. **Console** → Coller ce script :
+                    except Exception as e:
+                        st.error(f"❌ Erreur lors de l'extraction : {str(e)}")
 
-```javascript
-// Prix
-const price = document.querySelector('[data-qa-id="adview_price"]')?.textContent;
-console.log('Prix:', price);
-
-// Surface  
-const surface = document.body.textContent.match(/(\\d+)\\s*m²/)?.[1];
-console.log('Surface:', surface + ' m²');
-
-// Pièces
-const rooms = document.body.textContent.match(/(\\d+)\\s*pièce/i)?.[1];
-console.log('Pièces:', rooms);
-```
-
-4. **Copier les résultats** dans "Saisie manuelle"
-                    
-📖 **Guide complet :** `GUIDE_INSPECTEUR.md`""")
-
-def detailed_analysis_form():
-    """
-    Formulaire d'analyse détaillée avec export Excel.
+def show_detailed_analysis():
+    """Page d'analyse détaillée avec formulaire complet"""
     
-    Collecte des informations supplémentaires pour générer un fichier Excel
-    personnalisé avec les données du bien immobilier et les paramètres
-    fiscaux selon la structure d'investissement (Nom propre ou SCI).
-    """
+    # Marge en haut pour le bouton retour
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    # Vérification des prérequis
-    if not st.session_state.get('property_data'):
-        st.warning("⚠️ Veuillez d'abord analyser un bien via l'onglet 'URL LeBonCoin' ou 'Saisie manuelle'")
-        return
+    # Header avec retour accueil
+    col1, col2 = st.columns([1, 6])
+    with col1:
+        if st.button("🏠 Accueil", key="home_from_detailed"):
+            st.session_state.current_tab = "home"
+            st.rerun()
     
-    property_data = st.session_state.property_data
+    with col2:
+        st.markdown('<h2 class="section-title">📈 Analyse Détaillée</h2>', unsafe_allow_html=True)
     
-    # Affichage du bien sélectionné
-    st.info(f"""
-    **📋 Bien sélectionné :**
-    - **Titre :** {property_data.get('title', 'N/A')}
-    - **Prix :** {property_data.get('price', 0):,}€
-    - **Surface :** {property_data.get('surface', 0)} m²
-    - **Ville :** {property_data.get('city', 'N/A')}
-    """)
-    
-    st.markdown("### 📊 Informations supplémentaires pour l'analyse")
+    # Vérifier si on a des données extraites pour pré-remplir
+    extracted_data = st.session_state.get('extracted_data')
+    if extracted_data:
+        st.info(f"📋 **Bien pré-rempli :** {extracted_data.get('title', 'Bien immobilier')} - {extracted_data.get('price', 0):,}€ - {extracted_data.get('surface', 0)} m²")
     
     # Structure d'investissement - Hors formulaire pour mise à jour temps réel
     st.subheader("🏛️ Structure d'investissement")
@@ -292,24 +626,58 @@ def detailed_analysis_form():
                                         min_value=1, max_value=4, value=2, step=1,
                                         key="nb_associes_sci")
     
-    # Formulaire principal
+    # Formulaire principal complet
     with st.form("detailed_analysis"):
-        # Section 1: Caractéristiques du bien et financement
+        # Section 1: Informations du bien (pré-remplie si données extraites)
+        st.subheader("🏠 Informations du bien")
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("🏠 Caractéristiques du bien")
+            price = st.number_input("Prix d'achat (€)", 
+                                  min_value=0, 
+                                  value=extracted_data.get('price', 0) if extracted_data else 0, 
+                                  step=1000)
+            surface = st.number_input("Surface (m²)", 
+                                    min_value=0.0, 
+                                    value=float(extracted_data.get('surface', 0)) if extracted_data else 0.0, 
+                                    step=0.1)
             type_bien = st.selectbox("Neuf ou Occasion ?", options=["Occasion", "Neuf"], index=0)
-            loyer_hc = st.number_input("Loyer mensuel HC estimé (€)", min_value=0, value=800, step=25)
-            loyer_cc = st.number_input("Loyer mensuel CC estimé (€)", min_value=0, value=850, step=25)
             cout_renovation = st.number_input("Coût des travaux de rénovation (€)", min_value=0, value=0, step=500)
-            cout_construction = st.number_input("Coût des travaux de construction (€)", min_value=0, value=0, step=500)
             
         with col2:
-            st.subheader("💰 Financement")
+            location = st.text_input("Ville/Code postal", 
+                                   value=extracted_data.get('city', extracted_data.get('location', '')) if extracted_data else '')
+            rooms = st.number_input("Nombre de pièces", 
+                                  min_value=1, 
+                                  value=max(extracted_data.get('rooms', 3), 1) if extracted_data else 3)
+            cout_construction = st.number_input("Coût des travaux de construction (€)", min_value=0, value=0, step=500)
+        
+        # Section 2: Données locatives
+        st.subheader("💰 Données locatives")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            loyer_hc = st.number_input("Loyer mensuel HC estimé (€)", 
+                                     min_value=0, 
+                                     value=int(surface * 15) if surface > 0 else 800, 
+                                     step=25)
+            
+        with col2:
+            loyer_cc = st.number_input("Loyer mensuel CC estimé (€)", 
+                                     min_value=0, 
+                                     value=int(surface * 16) if surface > 0 else 850, 
+                                     step=25)
+        
+        # Section 3: Financement
+        st.subheader("🏦 Financement")
+        col1, col2 = st.columns(2)
+        
+        with col1:
             utilise_pret = st.selectbox("Vous utilisez un prêt ?", options=["Oui", "Non"], index=0)
-            apport_default = int(property_data.get('price', 0) * 0.15)  # 15% du prix
+            apport_default = int(price * 0.15) if price > 0 else 0  # 15% du prix
             apport = st.number_input("Combien d'apport (€)", min_value=0, value=apport_default, step=1000)
+            
+        with col2:
             duree_pret = st.number_input("Durée du prêt (années)", min_value=1, max_value=30, value=20, step=1)
             taux_pret = st.number_input("Taux du prêt (%)", min_value=0.0, max_value=10.0, value=4.0, step=0.1)
         
@@ -342,11 +710,8 @@ def detailed_analysis_form():
         else:  # SCI
             st.markdown("---")
             st.markdown("**🏢 Informations SCI**")
-            col_sci1, col_sci2 = st.columns(2)
-            
-            with col_sci1:
-                capital_sci = st.number_input("Capital de la SCI (€)", 
-                                            min_value=0, value=1000, step=100)
+            capital_sci = st.number_input("Capital de la SCI (€)", 
+                                        min_value=0, value=1000, step=100)
             
             # Informations pour chaque associé
             associes = []
@@ -394,17 +759,24 @@ def detailed_analysis_form():
         # Estimation à la revente
         st.markdown("---")
         st.subheader("📈 Plus-value")
-        estimation_revente_default = int(property_data.get('price', 0) * 1.2)  # 120% du prix
+        estimation_revente_default = int(price * 1.2) if price > 0 else 0  # 120% du prix
         estimation_revente = st.number_input("Estimation à la revente (€)", 
                                            min_value=0, value=estimation_revente_default, step=5000)
         
-        submitted = st.form_submit_button("📁 Générer l'analyse Excel", type="primary")
+        submitted = st.form_submit_button("📁 Générer l'analyse Excel complète", type="primary", use_container_width=True)
     
     # HORS du formulaire - Traitement et téléchargement
-    if submitted:
+    if submitted and price > 0 and surface > 0:
         # Sauvegarder les données dans la session pour traitement hors formulaire
         st.session_state['excel_generation_data'] = {
-            'property_data': property_data,
+            'property_data': {
+                'price': price,
+                'surface': surface,
+                'city': location,
+                'location': location,
+                'rooms': rooms,
+                'title': f"Bien {rooms}P - {location}"
+            },
             'additional_data': {
                 'type_bien': type_bien,
                 'loyer_hc': loyer_hc,
@@ -447,127 +819,104 @@ def generate_google_sheets_analysis(property_data, additional_data):
         additional_data (dict): Données supplémentaires du formulaire
         
     Returns:
-        str: Chemin vers le fichier Excel exporté, ou None en cas d'erreur
+        bool: True si succès, False sinon
     """
     try:
-        # Initialiser le gestionnaire Google Sheets
-        gs_manager = GoogleSheetsManager()
-        
-        # Connexion à Google Sheets
-        if not gs_manager.connect():
-            return None
-        
-        # Mise à jour des données dans le template principal
-        if not gs_manager.update_property_data(property_data, additional_data):
-            return None
-        
-        # ============================================================================
-        # CRÉATION DES INDICATEURS VISUELS
-        # ============================================================================
-        
-        st.markdown("---")
-        st.markdown("### 📊 Indicateurs basés sur Google Sheets")
-        
-        # ============================================================================
-        # SECTION 1: CAMEMBERT DES CHARGES
-        # ============================================================================
-        
-        charges_data = gs_manager.get_charges_data()
-        
-        if charges_data:
-            create_charges_pie_chart(charges_data)
-        else:
-            st.warning("⚠️ Impossible de récupérer les données des charges")
-        
-        # ============================================================================
-        # SECTION 2: INDICATEURS FISCAUX (selon le régime choisi)
-        # ============================================================================
-        
-        st.markdown("---")
-        donnees_fiscales = additional_data.get('donnees_fiscales', {})
-        type_regime = donnees_fiscales.get('type', 'nom_propre')
-        
-        if type_regime:
-            st.markdown(f"### 📋 Analyse fiscale - Régime {type_regime.replace('_', ' ').title()}")
-            create_fiscalite_charts(gs_manager, type_regime)
-        
-        # ============================================================================
-        # SECTION 3: PLUS-VALUE
-        # ============================================================================
-        
-        st.markdown("---")
-        create_plus_value_chart(gs_manager)
-        
-        # ============================================================================
-        # SECTION 4: AMORTISSEMENT DU PRÊT
-        # ============================================================================
-        
-        st.markdown("---")
-        create_amortissement_chart(gs_manager)
-        
-        # ============================================================================
-        # EXPORT EXCEL POUR TÉLÉCHARGEMENT (OpenPyXL - Local) - HORS FORMULAIRE
-        # ============================================================================
-        
-        st.markdown("---")
-        st.markdown("### 📥 Téléchargement Excel")
-        
-        # Générer l'analyse Excel locale
-        excel_manager = generate_excel_analysis(property_data, additional_data)
-        
-        if excel_manager:
-            # Créer le bouton de téléchargement HORS du contexte de formulaire
-            excel_manager.create_download_button(property_data)
-        else:
-            st.error("❌ Erreur génération fichier Excel")
-        
-        # ============================================================================ 
-        # INFORMATIONS COMPLÉMENTAIRES
-        # ============================================================================
-        
-        st.markdown("---")
-        with st.expander("ℹ️ À propos de cette analyse"):
-            st.markdown("""
-            **🔄 Double approche :**
-            - **Indicateurs temps réel** : Calculés via Google Sheets API
-            - **Téléchargement Excel** : Copie locale modifiée avec OpenPyXL
+        with st.spinner("🔄 Génération de l'analyse en cours..."):
+            # Initialiser le gestionnaire Google Sheets
+            gs_manager = GoogleSheetsManager()
             
-            **✅ Avantages :**
-            - **Fiabilité** : Pas de problème de quota Google Drive
-            - **Performance** : Traitement local rapide
-            - **Compatibilité** : Excel natif avec toutes les formules
-            - **Autonomie** : Fonctionne hors ligne après téléchargement
+            # Connexion à Google Sheets
+            if not gs_manager.connect():
+                st.error("❌ Erreur de connexion à Google Sheets")
+                return False
             
-            **🔄 Données synchronisées :**
-            Les indicateurs affichés et le fichier Excel contiennent exactement les mêmes données.
-            """)
-        
-        return True
-        
+            # Mise à jour des données dans le template principal
+            if not gs_manager.update_property_data(property_data, additional_data):
+                st.error("❌ Erreur de mise à jour des données")
+                return False
+            
+            # ============================================================================
+            # CRÉATION DES INDICATEURS VISUELS
+            # ============================================================================
+            
+            st.markdown("---")
+            st.markdown("### 📊 Indicateurs basés sur Google Sheets")
+            
+            # Section 1: Camembert des charges
+            charges_data = gs_manager.get_charges_data()
+            if charges_data:
+                create_charges_pie_chart(charges_data)
+            else:
+                st.warning("⚠️ Impossible de récupérer les données des charges")
+            
+            # Section 2: Indicateurs fiscaux
+            st.markdown("---")
+            donnees_fiscales = additional_data.get('donnees_fiscales', {})
+            type_regime = donnees_fiscales.get('type', 'nom_propre')
+            
+            if type_regime:
+                st.markdown(f"### 📋 Analyse fiscale - Régime {type_regime.replace('_', ' ').title()}")
+                create_fiscalite_charts(gs_manager, type_regime)
+            
+            # Section 3: Plus-value
+            st.markdown("---")
+            create_plus_value_chart(gs_manager)
+            
+            # Section 4: Amortissement du prêt
+            st.markdown("---")
+            create_amortissement_chart(gs_manager)
+            
+            # ============================================================================
+            # EXPORT EXCEL POUR TÉLÉCHARGEMENT (OpenPyXL - Local) - HORS FORMULAIRE
+            # ============================================================================
+            
+            st.markdown("---")
+            st.markdown("### 📥 Téléchargement Excel")
+            
+            # Générer l'analyse Excel locale
+            excel_manager = generate_excel_analysis(property_data, additional_data)
+            
+            if excel_manager:
+                # Créer le bouton de téléchargement HORS du contexte de formulaire
+                excel_manager.create_download_button(property_data)
+            else:
+                st.error("❌ Erreur génération fichier Excel")
+            
+            # ============================================================================ 
+            # INFORMATIONS COMPLÉMENTAIRES
+            # ============================================================================
+            
+            st.markdown("---")
+            with st.expander("ℹ️ À propos de cette analyse"):
+                st.markdown("""
+                **🔄 Double approche :**
+                - **Indicateurs temps réel** : Calculés via Google Sheets API
+                - **Téléchargement Excel** : Copie locale modifiée avec OpenPyXL
+                
+                **✅ Avantages :**
+                - **Fiabilité** : Pas de problème de quota Google Drive
+                - **Performance** : Traitement local rapide
+                - **Compatibilité** : Excel natif avec toutes les formules
+                - **Autonomie** : Fonctionne hors ligne après téléchargement
+                
+                **🔄 Données synchronisées :**
+                Les indicateurs affichés et le fichier Excel contiennent exactement les mêmes données.
+                """)
+            
+            return True
+            
     except Exception as e:
         st.error(f"❌ Erreur analyse Google Sheets : {str(e)}")
-        
-        # En cas d'erreur, s'assurer de supprimer la copie temporaire
-        try:
-            gs_manager.delete_temporary_copy()
-        except:
-            pass
-            
-        return None
+        return False
 
 def create_charges_pie_chart(charges_data):
-    """
-    Crée le camembert des charges annuelles à partir des données Google Sheets.
-    
-    Args:
-        charges_data (list): Liste des charges avec libellé et valeur
-    """
+    """Crée le camembert des charges annuelles à partir des données Google Sheets."""
     try:
-        # Convertir en DataFrame pandas
         df_charges = pd.DataFrame(charges_data)
         
         if df_charges.empty:
-            st.warning("⚠️ Aucune donnée de charges disponible")
+            st.warning("⚠️ Aucune donnée de charges trouvée")
             return
         
         # ============================================================================
@@ -625,7 +974,6 @@ def create_charges_pie_chart(charges_data):
         
     except Exception as e:
         st.error(f"❌ Erreur création camembert : {str(e)}")
-        st.code(traceback.format_exc())
 
 def create_fiscalite_charts(gs_manager, type_regime):
     """Crée les graphiques fiscaux selon le régime (nom_propre ou sci)"""
@@ -633,12 +981,13 @@ def create_fiscalite_charts(gs_manager, type_regime):
         if type_regime == "nom_propre":
             create_nom_propre_charts(gs_manager)
         elif type_regime == "sci":
-            create_sci_charts(gs_manager)
+            # Pour SCI : aucun indicateur selon votre demande
+            st.info("📊 Aucun indicateur spécifique affiché pour le régime SCI")
     except Exception as e:
         st.error(f"❌ Erreur création graphiques fiscaux : {str(e)}")
 
 def create_nom_propre_charts(gs_manager):
-    """Crée les graphiques pour le régime Nom propre"""
+    """Crée les graphiques pour le régime Nom propre - avec tous les histogrammes"""
     try:
         data = gs_manager.get_fiscalite_data("nom_propre")
         if not data:
@@ -722,7 +1071,7 @@ def create_nom_propre_charts(gs_manager):
             )
             
             st.plotly_chart(fig_cash, use_container_width=True)
-            
+        
     except Exception as e:
         st.error(f"❌ Erreur graphiques Nom propre : {str(e)}")
 
@@ -866,7 +1215,7 @@ def create_amortissement_chart(gs_manager):
         
         with col3:
             st.metric(
-                label="🛡️ Mensualité avec assurance",
+                label="�️ Mensualité avec assurance",
                 value=f"{data['mensualite_avec_assurance']:,.0f} €"
             )
         
@@ -916,251 +1265,170 @@ def create_amortissement_chart(gs_manager):
         
     except Exception as e:
         st.error(f"❌ Erreur graphique amortissement : {str(e)}")
-
-def chat_interface():
-    """Interface de chat classique orientée immobilier (Streamlit chat)."""
-
-    # Initialiser/afficher l'état de la connexion IA
-    if 'assistant' not in st.session_state:
-        st.session_state.assistant = AIAssistant()
-    assistant: AIAssistant = st.session_state.assistant
-
-    # Bandeau d'état du backend IA
-    backend = ""
-    if getattr(assistant, 'groq_client', None):
-        backend = f"Groq · Modèle: {getattr(assistant, 'groq_model', 'n/a')} · Température: {getattr(assistant, 'generation_temperature', 'n/a')}"
-        st.caption(f"Connexion IA: {backend}")
-    elif getattr(assistant, 'openai_client', None):
-        backend = f"OpenAI · Modèle: {getattr(assistant, 'openai_model', 'n/a')} · Température: {getattr(assistant, 'generation_temperature', 'n/a')}"
-        st.caption(f"Connexion IA: {backend}")
-    else:
-        st.caption("Connexion IA: mode local (fallback)")
-
-    # Replay de l'historique en bulles de chat
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg['role']):
-            st.markdown(msg['content'])
-
-    # Entrée utilisateur en bas, style chat
-    prompt = st.chat_input("Posez votre question (ex: Qu'est-ce qu'une SCI ? Différence LMNP vs LMP ?)" )
-    if prompt:
-        # Afficher et stocker la requête utilisateur
-        st.session_state.chat_history.append({
-            'role': 'user',
-            'content': prompt,
-            'timestamp': datetime.now().isoformat()
-        })
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Obtenir la réponse de l'assistant avec contexte du bien
-        with st.chat_message("assistant"):
-            with st.spinner("Rédaction de la réponse…"):
-                reply = assistant.get_response(
-                    prompt,
-                    st.session_state.chat_history,
-                    st.session_state.property_data
-                )
-                st.markdown(reply)
-        # Stocker la réponse
-        st.session_state.chat_history.append({
-            'role': 'assistant',
-            'content': reply,
-            'timestamp': datetime.now().isoformat()
-        })
-        # Pas de st.rerun ici, l'UI de chat gère le flux
-
-def results_interface():
-    """Interface des résultats avec estimation intégrée"""
-    
-    if st.session_state.property_data:
-        property_data = st.session_state.property_data
+        # Récupération des données pré-remplies si elles existent
+        pre_price = st.session_state.get('property_price', 0)
+        pre_surface = st.session_state.get('property_surface', 0)
+        pre_location = st.session_state.get('property_location', '')
+        pre_rooms = st.session_state.get('property_rooms', 0)
         
-        # Résumé du bien
-        st.subheader("🏠 Bien analysé")
-        
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            st.metric("Prix", f"{property_data.get('price', 0):,}€")
-            st.metric("Surface", f"{property_data.get('surface', 0)} m²")
-        with col_r2:
-            if property_data.get('price', 0) > 0 and property_data.get('surface', 0) > 0:
-                price_per_sqm = property_data['price'] / property_data['surface']
-                st.metric("Prix/m²", f"{price_per_sqm:,.0f}€")
-            st.metric("Pièces", property_data.get('rooms', 'N/A'))
-        
-        st.divider()
-
-        # Estimation via API intégrée
-        st.subheader("💰 Estimation de marché")
-
-        if st.button("🔍 Estimer avec données locales"):
-            estimate_with_api(property_data)
-
-        # Calculs de rentabilité avec saisie du loyer
-        st.subheader("📊 Analyse de rentabilité")
-
-        if property_data.get('price', 0) > 0 and property_data.get('surface', 0) > 0:
-            # Champ de saisie du loyer estimé
-            loyer_suggest = int(property_data['price'] * 0.008)  # Suggestion 0.8% du prix
+        # Formulaire principal
+        with st.form("detailed_analysis_form"):
+            # Informations du bien
+            st.markdown('<h3 class="section-title">🏠 Informations du bien</h3>', unsafe_allow_html=True)
             
-            monthly_rent = st.number_input(
-                "💶 Loyer mensuel estimé (€)",
-                min_value=0,
-                value=loyer_suggest,
-                step=50,
-                help="Estimez le loyer mensuel que vous pourriez obtenir"
-            )
-            
-            if monthly_rent > 0:
-                # Utiliser le calculator
-                calculator = RentabilityCalculator()
-                result = calculator.calculate_gross_yield(property_data['price'], monthly_rent)
+            col1, col2 = st.columns(2)
+            with col1:
+                price = st.number_input("Prix d'achat (€)", min_value=0, value=pre_price, step=1000)
+                surface = st.number_input("Surface (m²)", min_value=0.0, value=float(pre_surface), step=0.1)
                 
-                if 'error' not in result:
-                    col_calc1, col_calc2, col_calc3 = st.columns(3)
-                    with col_calc1:
-                        st.metric("Loyer annuel", f"{result['annual_rent']:,.0f}€")
-                    with col_calc2:
-                        st.metric("Rentabilité brute", f"{result['gross_yield']:.2f}%")
-                    with col_calc3:
-                        st.metric("Évaluation", result['evaluation'])
-                else:
-                    st.warning(f"⚠️ {result['error']}")
-
-        # Bouton réinitialiser
-        if st.button("🔄 Nouvelle analyse"):
-            st.session_state.property_data = None
-            st.rerun()
+            with col2:
+                location = st.text_input("Ville/Code postal", value=pre_location)
+                rooms = st.number_input("Nombre de pièces", min_value=1, value=max(pre_rooms, 1))
             
-    else:
-        st.info("👈 Analysez un bien pour voir les résultats ici")
+            # Données financières
+            st.markdown('<h3 class="section-title">💰 Données financières</h3>', unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                rent = st.number_input("Loyer mensuel estimé (€)", min_value=0, step=50)
+                notary_fees = st.number_input("Frais de notaire (%)", min_value=0.0, max_value=15.0, value=7.5, step=0.1)
+                
+            with col2:
+                monthly_charges = st.number_input("Charges mensuelles (€)", min_value=0, step=25)
+                renovation_cost = st.number_input("Coût travaux (€)", min_value=0, step=1000)
+            
+            # Financement
+            st.markdown('<h3 class="section-title">🏦 Financement</h3>', unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                loan_amount = st.number_input("Montant emprunté (€)", min_value=0, value=int(price * 0.8) if price > 0 else 0, step=1000)
+                interest_rate = st.number_input("Taux d'intérêt (%)", min_value=0.0, max_value=10.0, value=3.5, step=0.1)
+                
+            with col2:
+                loan_duration = st.number_input("Durée emprunt (années)", min_value=1, max_value=30, value=20)
+                insurance_rate = st.number_input("Assurance emprunteur (%)", min_value=0.0, max_value=1.0, value=0.36, step=0.01)
+            
+            # Fiscalité
+            st.markdown('<h3 class="section-title">📋 Fiscalité</h3>', unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                tax_rate = st.number_input("Taux imposition (%)", min_value=0.0, max_value=50.0, value=30.0, step=1.0)
+                property_tax = st.number_input("Taxe foncière annuelle (€)", min_value=0, step=100)
+                
+            with col2:
+                management_fees = st.number_input("Frais de gestion (%)", min_value=0.0, max_value=15.0, value=8.0, step=0.5)
+                vacancy_rate = st.number_input("Taux de vacance (%)", min_value=0.0, max_value=50.0, value=5.0, step=1.0)
+            
+            # Bouton de soumission
+            submitted = st.form_submit_button("📊 Générer l'analyse complète", use_container_width=True)
         
-        # Aide rapide
-        st.markdown("""
-        **Comment utiliser Rendimo :**
-        
-        1. 🔗 **Collez une URL** LeBonCoin dans l'onglet correspondant
-        2. 📝 **Ou saisissez manuellement** les données du bien
-        3. 📊 **Consultez l'analyse** qui apparaîtra ici
-        4. 💬 **Posez vos questions** à l'assistant IA
-        """)
+        # Traitement du formulaire
+        if submitted and price > 0 and surface > 0:
+            # Préparation des données
+            property_data = {
+                'price': price,
+                'surface': surface,
+                'location': location,
+                'rooms': rooms,
+                'rent': rent,
+                'notary_fees': notary_fees,
+                'monthly_charges': monthly_charges,
+                'renovation_cost': renovation_cost,
+                'loan_amount': loan_amount,
+                'interest_rate': interest_rate,
+                'loan_duration': loan_duration,
+                'insurance_rate': insurance_rate,
+                'tax_rate': tax_rate,
+                'property_tax': property_tax,
+                'management_fees': management_fees,
+                'vacancy_rate': vacancy_rate
+            }
+            
+            generate_analysis_and_excel(property_data)
 
-def estimate_with_api(property_data):
-    """Estime un bien via SimplePriceAPI avec score de fiabilité"""
-    try:
-        with st.spinner("🔍 Estimation en cours..."):
-            # Pré-requis
-            surface = property_data.get('surface', 0)
-            price = property_data.get('price', 0)
-            if surface <= 0:
-                st.warning("⚠️ Surface requise pour l'estimation")
-                return
+def generate_analysis_and_excel(property_data):
+    """Génère l'analyse et le fichier Excel"""
+    
+    with st.spinner("🔄 Génération de l'analyse en cours..."):
+        try:
+            # Calculs de rentabilité
+            calculator = RentabilityCalculator()
+            results = calculator.calculate_full_analysis(property_data)
+            
+            # Affichage des résultats
+            display_analysis_results(results)
+            
+            # Génération du fichier Excel
+            excel_file_path = generate_excel_analysis(property_data, results)
+            
+            if excel_file_path and os.path.exists(excel_file_path):
+                # Bouton de téléchargement
+                with open(excel_file_path, "rb") as file:
+                    st.download_button(
+                        label="📥 Télécharger le rapport Excel",
+                        data=file.read(),
+                        file_name=f"Analyse_Rendimo_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                
+                # Nettoyage du fichier temporaire
+                try:
+                    os.remove(excel_file_path)
+                except:
+                    pass
+            
+        except Exception as e:
+            st.error(f"❌ Erreur lors de l'analyse : {str(e)}")
 
-            city = property_data.get('city', '') or ''
-            postal_code = property_data.get('postal_code', None)
-            raw_type = (property_data.get('property_type') or '').lower()
-
-            # Mapping type LeBonCoin → DVF (apartment|house|other)
-            if 'maison' in raw_type or 'villa' in raw_type:
-                api_type = 'house'
-            elif 'appartement' in raw_type or 'studio' in raw_type or 'duplex' in raw_type:
-                api_type = 'apartment'
-            elif 'terrain' in raw_type or 'parking' in raw_type or 'garage' in raw_type:
-                api_type = 'other'
-            else:
-                # Fallback par défaut : appartement pour tout le reste
-                api_type = 'apartment'
-
-            api = DVFPriceAPI(use_lite=False)  # Utilise la base FULL avec toutes les villes
-            market = api.get_price_estimate(city=city, postal_code=postal_code, property_type=api_type)
-
-            if market.get('error'):
-                st.info("ℹ️ Aucune estimation disponible pour cette commune.")
-                add_chat_message("assistant", "ℹ️ Impossible d'estimer le prix pour cette zone.")
-                return
-
-            # Sauvegarde en session pour chatbot/usage ultérieur
-            st.session_state['market_data'] = market
-
-            # Affichage simplifié des métriques marché
-            st.markdown("### 📈 Marché local")
-            m1, m2, m3 = st.columns([2, 1, 1])
-            with m1:
-                st.metric("Prix moyen €/m²", f"{market.get('price_per_sqm', 0):,}€")
-            with m2:
-                # Score de fiabilité avec indicateur visuel
-                reliability = market.get('reliability_score', 0)
-                transaction_count = market.get('transaction_count', 0)
-                if reliability >= 85:
-                    icon = "🟢"
-                elif reliability >= 70:
-                    icon = "🟡"
-                else:
-                    icon = "🟠"
-                st.metric("Fiabilité", f"{icon} {reliability}% ({transaction_count} trans.)")
-            with m3:
-                st.caption("**Source:**")
-                st.caption(market.get('source', 'N/A'))
-
-            # Comparaison du bien vs marché
-            st.markdown("### 🧮 Comparaison du bien")
-            cmp_res = api.compare_property_price(property_price=price, property_surface=surface, market_data=market)
-            if 'error' in cmp_res:
-                st.warning(f"⚠️ {cmp_res['error']}")
-            else:
-                k1, k2, k3 = st.columns(3)
-                with k1:
-                    st.metric("Prix du bien €/m²", f"{cmp_res['property_price_per_sqm']:.0f}€")
-                with k2:
-                    st.metric("Écart vs marché", f"{cmp_res['percentage_difference']:+.1f}%")
-                with k3:
-                    st.metric("Évaluation", cmp_res.get('score', 'N/A'))
-
-            # Message chatbot avec source et fiabilité
-            add_chat_message(
-                "assistant",
-                f"📊 Estimation affichée pour {city} ({api_type}). "
-                f"Prix moyen: {market.get('price_per_sqm', 'N/A')}€/m² — "
-                f"Source: {market.get('source', 'N/A')} — "
-                f"Fiabilité: {market.get('reliability_score', 'N/A')}%"
-            )
-
-    except Exception as e:
-        st.error(f"❌ Erreur estimation : {str(e)}")
-
-def handle_chat_message(message):
-    """Traite un message de chat"""
-    try:
-        # Ajouter le message utilisateur
-        add_chat_message("user", message)
-        
-        # Initialiser l'assistant IA
-        assistant = AIAssistant()
-        
-        # Obtenir la réponse
-        response = assistant.get_response(
-            message, 
-            st.session_state.chat_history,
-            st.session_state.property_data
+def display_analysis_results(results):
+    """Affiche les résultats de l'analyse"""
+    
+    st.markdown('<h3 class="section-title">📊 Résultats de l\'analyse</h3>', unsafe_allow_html=True)
+    
+    # Indicateurs principaux
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Rendement brut",
+            f"{results.get('gross_yield', 0):.2f}%",
+            delta=f"{results.get('gross_yield', 0) - 5:.2f}% vs 5%"
         )
+    
+    with col2:
+        st.metric(
+            "Rendement net",
+            f"{results.get('net_yield', 0):.2f}%",
+            delta=f"{results.get('net_yield', 0) - 3:.2f}% vs 3%"
+        )
+    
+    with col3:
+        st.metric(
+            "Cash-flow mensuel",
+            f"{results.get('monthly_cashflow', 0):.0f} €",
+            delta="Positif" if results.get('monthly_cashflow', 0) > 0 else "Négatif"
+        )
+    
+    with col4:
+        st.metric(
+            "ROI (10 ans)",
+            f"{results.get('roi_10_years', 0):.1f}%"
+        )
+    
+    # Graphiques si disponibles
+    if results.get('charts'):
+        st.markdown('<h3 class="section-title">📈 Graphiques d\'analyse</h3>', unsafe_allow_html=True)
         
-        # Ajouter la réponse
-        add_chat_message("assistant", response)
+        # Exemple de graphique de cash-flow
+        if 'cashflow_projection' in results.get('charts', {}):
+            st.plotly_chart(results['charts']['cashflow_projection'], use_container_width=True)
         
-        st.rerun()
-        
-    except Exception as e:
-        add_chat_message("assistant", f"❌ Erreur : {str(e)}")
-        st.rerun()
-
-def add_chat_message(role, content):
-    """Ajoute un message au chat"""
-    st.session_state.chat_history.append({
-        'role': role,
-        'content': content,
-        'timestamp': datetime.now().isoformat()
-    })
+        # Exemple de répartition des coûts
+        if 'cost_breakdown' in results.get('charts', {}):
+            st.plotly_chart(results['charts']['cost_breakdown'], use_container_width=True)
 
 if __name__ == "__main__":
     main()
