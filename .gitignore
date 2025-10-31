@@ -27,6 +27,7 @@ MANIFEST
 *.key
 keys.txt
 secrets.json
+config/google_sheets_credentials.json
 
 # Logs
 *.log
