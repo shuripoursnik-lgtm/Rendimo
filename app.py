@@ -571,15 +571,13 @@ def show_simple_analysis():
                             
                             # Bouton pour passer à l'analyse détaillée
                             st.markdown("---")
-                            if st.button("📈 Passer à l'analyse détaillée", key="to_detailed"):
+                            if st.button("📈 Charger vers l'analyse détaillée", key="to_detailed"):
                                 # Pré-remplir les données dans la session
-                                st.session_state.update({
-                                    'property_price': property_data.get('price', 0),
-                                    'property_surface': property_data.get('surface', 0),
-                                    'property_location': property_data.get('city', property_data.get('location', '')),
-                                    'property_rooms': property_data.get('rooms', 0),
-                                    'current_tab': 'detailed_analysis'
-                                })
+                                st.session_state.property_price = property_data.get('price', 0)
+                                st.session_state.property_surface = property_data.get('surface', 0)
+                                st.session_state.property_location = property_data.get('city', property_data.get('location', ''))
+                                st.session_state.property_rooms = property_data.get('rooms', 0)
+                                st.session_state.current_tab = 'detailed_analysis'
                                 st.rerun()
                         
                         else:
@@ -587,6 +585,180 @@ def show_simple_analysis():
                     
                     except Exception as e:
                         st.error(f"❌ Erreur lors de l'extraction : {str(e)}")
+    
+    with tab2:
+        st.markdown("### ✏️ Saisie manuelle des données")
+        st.markdown("Remplissez manuellement les informations du bien immobilier.")
+        
+        with st.form("manual_input_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 🏠 Informations du bien")
+                manual_price = st.number_input("Prix de vente (€)", 
+                                             min_value=0, 
+                                             value=0, 
+                                             step=1000,
+                                             help="Prix d'achat du bien en euros")
+                
+                manual_surface = st.number_input("Surface (m²)", 
+                                               min_value=0, 
+                                               value=0, 
+                                               step=1,
+                                               help="Surface habitable en mètres carrés")
+            
+            with col2:
+                st.markdown("#### 📍 Localisation et caractéristiques")
+                manual_location = st.text_input("Ville", 
+                                              placeholder="Ex: Paris, Lyon, Marseille...",
+                                              help="Ville ou localisation du bien")
+                
+                manual_rooms = st.number_input("Nombre de pièces", 
+                                             min_value=0, 
+                                             value=0, 
+                                             step=1,
+                                             help="Nombre total de pièces")
+            
+            # Bouton de soumission
+            submitted = st.form_submit_button("🚀 Analyser ce bien", type="primary", use_container_width=True)
+        
+        # Traitement après soumission du formulaire
+        if submitted and manual_price > 0 and manual_surface > 0 and manual_location.strip():
+            # Créer un dictionnaire property_data identique à celui du scraping
+            property_data = {
+                'title': f"Bien {manual_surface} m² à {manual_location}",
+                'price': manual_price,
+                'surface': manual_surface,
+                'city': manual_location.strip(),
+                'location': manual_location.strip(),
+                'rooms': manual_rooms,
+                'property_type': 'Bien immobilier',  # Type générique
+                'source_url': 'Saisie manuelle',
+                'extraction_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # Stockage dans la session pour utilisation dans l'analyse détaillée
+            st.session_state.extracted_data = property_data
+            
+            # Affichage des données saisies (même structure que tab1)
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown('<h3 class="section-title">🏠 Informations du bien</h3>', unsafe_allow_html=True)
+                st.metric("Prix de vente", f"{property_data.get('price', 'N/A'):,} €")
+                st.metric("Surface", f"{property_data.get('surface', 'N/A')} m²")
+                st.metric("Localisation", property_data.get('city', 'N/A'))
+                
+                if property_data.get('rooms'):
+                    st.metric("Nombre de pièces", property_data.get('rooms'))
+            
+            with col2:
+                # Analyse DVF (même code que tab1)
+                location = property_data.get('city', '')
+                if location:
+                    try:
+                        # Préparer les données pour l'API DVF
+                        surface = property_data.get('surface', 0)
+                        price = property_data.get('price', 0)
+                        
+                        # Type par défaut pour saisie manuelle
+                        api_type = 'apartment'  # Fallback par défaut
+                        
+                        dvf_api = DVFPriceAPI(use_lite=False)  # Base complète
+                        market_data = dvf_api.get_price_estimate(
+                            city=location,
+                            postal_code=None,  # Pas de code postal en saisie manuelle
+                            property_type=api_type
+                        )
+                        
+                        if not market_data.get('error'):
+                            st.markdown('<h3 class="section-title">📈 Comparaison marché DVF</h3>', unsafe_allow_html=True)
+                            
+                            # Métriques marché
+                            col_m1, col_m2 = st.columns(2)
+                            with col_m1:
+                                st.metric("Prix moyen m²", f"{market_data.get('price_per_sqm', 0):,.0f} €/m²")
+                                reliability = market_data.get('reliability_score', 0)
+                                transaction_count = market_data.get('transaction_count', 0)
+                                
+                                if reliability >= 85:
+                                    icon = "🟢"
+                                elif reliability >= 70:
+                                    icon = "🟡"
+                                else:
+                                    icon = "🟠"
+                                st.metric("Fiabilité", f"{icon} {reliability}% ({transaction_count} trans.)")
+                            
+                            with col_m2:
+                                # Comparaison du bien vs marché
+                                if surface > 0 and price > 0:
+                                    property_price_per_sqm = price / surface
+                                    market_price_per_sqm = market_data.get('price_per_sqm', 0)
+                                    
+                                    if market_price_per_sqm > 0:
+                                        diff_pct = ((property_price_per_sqm - market_price_per_sqm) / market_price_per_sqm) * 100
+                                        st.metric("Prix bien €/m²", f"{property_price_per_sqm:,.0f} €/m²")
+                                        
+                                        if diff_pct > 10:
+                                            evaluation = "🔴 Cher"
+                                        elif diff_pct > -5:
+                                            evaluation = "🟡 Correct"
+                                        else:
+                                            evaluation = "🟢 Bon prix"
+                                        
+                                        st.metric("Écart vs marché", f"{diff_pct:+.1f}%", delta=evaluation)
+                            
+                            # Calcul de rentabilité estimée
+                            if surface > 0 and price > 0:
+                                # Estimation loyer basée sur 15€/m² par défaut ou données DVF
+                                estimated_rent_per_sqm = 15  # Estimation conservative
+                                estimated_monthly_rent = surface * estimated_rent_per_sqm
+                                annual_rent = estimated_monthly_rent * 12
+                                
+                                gross_yield = (annual_rent / price) * 100
+                                
+                                st.markdown("---")
+                                st.markdown('<h4 class="section-title">💰 Rentabilité estimée</h4>', unsafe_allow_html=True)
+                                
+                                col_r1, col_r2 = st.columns(2)
+                                with col_r1:
+                                    st.metric("Loyer estimé", f"{estimated_monthly_rent:,.0f} €/mois")
+                                with col_r2:
+                                    if gross_yield >= 7:
+                                        yield_icon = "🟢"
+                                    elif gross_yield >= 5:
+                                        yield_icon = "🟡"
+                                    else:
+                                        yield_icon = "🔴"
+                                    st.metric("Rendement brut", f"{yield_icon} {gross_yield:.1f}%")
+                        
+                        else:
+                            st.warning("ℹ️ Données DVF non disponibles pour cette localisation")
+                    
+                    except Exception as e:
+                        st.warning(f"Erreur DVF : {str(e)}")
+                else:
+                    st.info("📍 Localisation nécessaire pour l'analyse DVF")
+            
+            # Bouton pour passer à l'analyse détaillée (même que tab1)
+            st.markdown("---")
+            if st.button("📈 Charger vers l'analyse détaillée", key="to_detailed_manual"):
+                # Pré-remplir les données dans la session
+                st.session_state.property_price = property_data.get('price', 0)
+                st.session_state.property_surface = property_data.get('surface', 0)
+                st.session_state.property_location = property_data.get('city', '')
+                st.session_state.property_rooms = property_data.get('rooms', 0)
+                st.session_state.current_tab = 'detailed_analysis'
+                st.rerun()
+        
+        elif submitted:
+            # Message d'erreur si des champs obligatoires sont manquants
+            if manual_price <= 0:
+                st.error("❌ Le prix de vente doit être supérieur à 0")
+            if manual_surface <= 0:
+                st.error("❌ La surface doit être supérieure à 0")
+            if not manual_location.strip():
+                st.error("❌ La localisation est obligatoire")
 
 def show_detailed_analysis():
     """Page d'analyse détaillée avec formulaire complet"""
@@ -641,7 +813,7 @@ def show_detailed_analysis():
                                     min_value=0.0, 
                                     value=float(extracted_data.get('surface', 0)) if extracted_data else 0.0, 
                                     step=0.1)
-            type_bien = st.selectbox("Neuf ou Occasion ?", options=["Occasion", "Neuf"], index=0)
+            type_bien = st.selectbox("Neuf ou Ancien ?", options=["Ancien", "Neuf"], index=0)
             cout_renovation = st.number_input("Coût des travaux de rénovation (€)", min_value=0, value=0, step=500)
             
         with col2:
@@ -981,8 +1153,7 @@ def create_fiscalite_charts(gs_manager, type_regime):
         if type_regime == "nom_propre":
             create_nom_propre_charts(gs_manager)
         elif type_regime == "sci":
-            # Pour SCI : aucun indicateur selon votre demande
-            st.info("📊 Aucun indicateur spécifique affiché pour le régime SCI")
+            create_sci_charts(gs_manager)
     except Exception as e:
         st.error(f"❌ Erreur création graphiques fiscaux : {str(e)}")
 

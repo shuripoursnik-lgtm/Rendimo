@@ -80,7 +80,7 @@ class ExcelManager:
                     frais_sheet['I3'] = prix
                 
                 # Type de bien (F3)
-                type_bien = additional_data.get('type_bien', 'Occasion')
+                type_bien = additional_data.get('type_bien', 'Ancien')
                 frais_sheet['F3'] = type_bien
                 
             except Exception as e:
@@ -186,15 +186,12 @@ class ExcelManager:
                         part_decimal = float(associe.get('part', 0)) / 100
                         sci_sheet[f'{col}8'] = part_decimal
                         
-                        # Situation (ligne 9) 
-                        situation = associe.get('situation', 'Célibataire-divorcé-veuf')
-                        sci_sheet[f'{col}9'] = situation
-                        
                         # Revenu (ligne 10)
                         revenu = float(associe.get('revenu', 0))
                         sci_sheet[f'{col}10'] = revenu
                         
-                        # Situation familiale détaillée (ligne 11) - même que ligne 9
+                        # Situation familiale (ligne 11)
+                        situation = associe.get('situation', 'Célibataire-divorcé-veuf')
                         sci_sheet[f'{col}11'] = situation
                         
                         # Nombre d'enfants (ligne 12)

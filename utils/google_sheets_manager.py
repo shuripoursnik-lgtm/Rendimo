@@ -125,7 +125,7 @@ class GoogleSheetsManager:
                     frais_sheet.update('I3', [[prix]])  # Format liste de listes
                 
                 # Type de bien (F3) - S'assurer que c'est du texte
-                type_bien = str(additional_data.get('type_bien', 'Occasion'))
+                type_bien = str(additional_data.get('type_bien', 'Ancien'))
                 frais_sheet.update('F3', [[type_bien]])  # Format liste de listes
                 
             except Exception as e:
@@ -225,6 +225,7 @@ class GoogleSheetsManager:
             associes = donnees_fiscales.get('associes', [])
             colonnes = ['D', 'E', 'F', 'G']
             
+            # Remplir les associés du formulaire
             for i, associe in enumerate(associes[:4]):  # Maximum 4 associés
                 if i < len(colonnes):
                     col = colonnes[i]
@@ -233,15 +234,12 @@ class GoogleSheetsManager:
                         part_decimal = float(associe.get('part', 0)) / 100
                         sci_sheet.update(f'{col}8', [[part_decimal]])
                         
-                        # Situation (ligne 9) 
-                        situation = str(associe.get('situation', 'Célibataire-divorcé-veuf'))
-                        sci_sheet.update(f'{col}9', [[situation]])
-                        
                         # Revenu (ligne 10)
                         revenu = float(associe.get('revenu', 0))
                         sci_sheet.update(f'{col}10', [[revenu]])
                         
-                        # Situation familiale détaillée (ligne 11) - même que ligne 9
+                        # Situation familiale (ligne 11)
+                        situation = str(associe.get('situation', 'Célibataire-divorcé-veuf'))
                         sci_sheet.update(f'{col}11', [[situation]])
                         
                         # Nombre d'enfants (ligne 12) - spécifique à chaque associé
@@ -250,6 +248,21 @@ class GoogleSheetsManager:
                         
                     except Exception as e:
                         st.warning(f"⚠️ Erreur associé {i+1}: {str(e)}")
+            
+            # Remplir les associés manquants avec des valeurs par défaut
+            nb_associes_formulaire = len(associes)
+            for i in range(nb_associes_formulaire, 4):  # De X+1 jusqu'à 4
+                if i < len(colonnes):
+                    col = colonnes[i]
+                    try:
+                        # Valeurs par défaut pour les associés manquants
+                        sci_sheet.update(f'{col}8', [[0]])  # Part = 0
+                        sci_sheet.update(f'{col}10', [[0]])  # Revenu = 0
+                        sci_sheet.update(f'{col}11', [['Célibataire-divorcé-veuf']])  # Situation par défaut
+                        sci_sheet.update(f'{col}12', [[0]])  # Enfants = 0
+                        
+                    except Exception as e:
+                        st.warning(f"⚠️ Erreur associé par défaut {i+1}: {str(e)}")
             
         except Exception as e:
             st.warning(f"⚠️ Erreur feuille 'SCI': {str(e)}")
@@ -381,7 +394,7 @@ class GoogleSheetsManager:
                 ir_row = cash_range[1]        # Deuxième ligne = SCI à l'IR
                 is_row = cash_range[2]        # Troisième ligne = SCI à l'IS
                 
-                # Ignorer la première colonne (libellés)
+                # Ignorer la première colonne C (libellés), commencer à partir de la colonne D (index 1)
                 for i in range(1, len(associes_row)):
                     if i < len(ir_row) and i < len(is_row):
                         associe_nom = str(associes_row[i]).strip() if associes_row[i] else f"Associé {i}"
